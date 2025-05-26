@@ -1,0 +1,63 @@
+[tool.poetry]
+name = "memfuse"
+version = "0.1.0"
+description = "Memfuse Python SDK"
+authors = ["Calvin Ku <cku@percena.co>", "Ming Xue <mxue@percena.co>"]
+license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://memfuse.vercel.app"
+repository = "https://github.com/memfuse/memfuse-python"
+keywords = ["memfuse", "sdk", "ai", "llm", "memory", "rag"]
+packages = [{ include = "memfuse", from = "src" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+pydantic = "^2.0"
+openai = "^1.75.0"
+jinja2 = "^3.1.6"
+python-frontmatter = "^1.1.0"
+httpx = "^0.28.1"
+aiohttp = {extras = ["speedups"], version = "^3.11.18"}
+requests = "^2.32.3"
+anthropic = "^0.51.0"
+google-genai = "^1.16.1"
+ollama = "^0.4.8"
+gradio = "^5.30.0"
+python-dotenv = "^1.1.0"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.5"
+respx = "^0.22.0"
+pytest-mock = "^3.14.0"
+ipykernel = "^6.29.5"
+datasets = "^3.6.0"
+colorlog = "^6.9.0"
+twine = "^6.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+vcs = "git"
+style = "pep440"
+
+[tool.poetry-dynamic-versioning.substitution]
+files = ["src/memfuse/__init__.py"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: mark a test as an integration test."
+]
