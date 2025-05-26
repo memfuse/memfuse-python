@@ -43,52 +43,41 @@
 
 ## About MemFuse
 
-Large-language-model apps are stateless out of the box.
-Once the context window rolls over, yesterday's chat, the user's name, or that crucial fact vanishes.
+Large language model applications are inherently stateless by design.
+When the context window reaches its limit, previous conversations, user preferences, and critical information simply disappear.
 
-**MemFuse** plugs a persistent, query-able memory layer between your LLM and a storage backend so agents can:
+**MemFuse** bridges this gap by providing a persistent, queryable memory layer between your LLM and storage backend, enabling AI agents to:
 
-- remember user preferences across sessions
-- recall facts & events thousands of turns later
-- trim token spend instead of resending the whole chat history
-- learn continuously and self-improve over time
+- **Remember** user preferences and context across sessions
+- **Recall** facts and events from thousands of interactions later
+- **Optimize** token usage by avoiding redundant chat history resending
+- **Learn** continuously and improve performance over time
 
-This repository contains the Python SDK for interacting with a MemFuse server. For more information about the MemFuse server and its features, please visit the [main MemFuse repository](https://github.com/memfuse/memfuse).
+This repository contains the official Python SDK for seamless integration with MemFuse servers. For comprehensive information about the MemFuse server architecture and advanced features, please visit the [MemFuse Server repository](https://github.com/memfuse/memfuse).
 
 ## Installation
 
-First, ensure you have a MemFuse server running. To set up the MemFuse server locally:
+> **Note:** This is the standalone Client SDK repository. If you need to install and run the MemFuse server, which is essential to use the SDK, please visit the [MemFuse Server repository](https://github.com/memfuse/memfuse).
 
-1.  Clone the [main MemFuse repository](https://github.com/memfuse/memfuse):
-    ```bash
-    git clone https://github.com/memfuse/memfuse.git
-    cd memfuse
-    ```
-2.  Once in the `memfuse` directory, install its dependencies and run the server using one of the following methods:
+You can install the MemFuse Python SDK using one of the following methods:
 
-    **Using pip:**
-
-    ```bash
-    pip install -e .
-    python -m memfuse_core
-    ```
-
-    **Or using Poetry:**
-
-    ```bash
-    poetry install
-    poetry run memfuse-core
-    ```
-
-Then, install the MemFuse Python SDK:
+**Option 1: Install from PyPI (Recommended)**
 
 ```bash
 pip install memfuse
 ```
 
+**Option 2: Install from Source**
+
+```bash
+git clone https://github.com/memfuse/memfuse-python.git
+cd memfuse-python
+pip install -e .
+```
+
 ## Quick Start
 
-Here's a basic example of how to use the MemFuse Python SDK with OpenAI:
+Here's a comprehensive example demonstrating how to use the MemFuse Python SDK with OpenAI:
 
 ```python
 from memfuse.llm import OpenAI
@@ -123,9 +112,9 @@ print(f"Response: {response.choices[0].message.content}")
 # Example Output: Response: Mars has a gravity of about 3.721 m/s², which is about 38% of Earth's gravity.
 ```
 
-<!-- Ask a follow-up question. MemFuse automatically recalls relevant context. -->
+### Contextual Follow-up
 
-Now, ask a follow-up question. MemFuse will automatically recall relevant context from the previous turn:
+Now, ask a follow-up question. MemFuse will automatically recall relevant context from the previous conversation:
 
 ```python
 # Ask a follow-up question. MemFuse automatically recalls relevant context.
@@ -138,30 +127,30 @@ print(f"Follow-up: {followup_response.choices[0].message.content}")
 # Example Output: Follow-up: Some challenges of living on Mars include its thin atmosphere, extreme temperatures, high radiation levels, and the lack of liquid water on the surface.
 ```
 
-MemFuse will automatically manage recalling relevant information and storing new memories from the conversation within the specified `memory` scope.
+MemFuse automatically manages the retrieval of relevant information and storage of new memories from conversations within the specified `memory` scope.
 
 ## Examples
 
-You can find more detailed examples in the [examples/](examples/) directory of this repository, showcasing:
+Explore comprehensive examples in the [examples/](examples/) directory of this repository, featuring:
 
-- Basic and asynchronous operations
-- Continued conversations
-- Integrations with Gradio for chatbots (including streaming)
+- **Basic Operations:** Fundamental usage patterns and asynchronous operations
+- **Conversation Continuity:** Maintaining context across multiple interactions
+- **UI Integrations:** Gradio-based chatbot implementations with streaming support
 
 ## Documentation
 
-- For detailed information about the MemFuse server, its architecture, and advanced configuration, please refer to the [main MemFuse documentation](https://memfuse.vercel.app/).
-- SDK-specific documentation and API references will be added here soon.
+- **Server Documentation:** For detailed information about the MemFuse server architecture and advanced configuration, visit the [MemFuse online documentation](https://memfuse.vercel.app/)
+- **SDK Documentation:** Comprehensive API references and guides will be available soon
 
 ## Community & Support
 
-Join the MemFuse community:
+Join our growing community:
 
-- **GitHub Discussions:** For roadmap voting, RFCs, Q&A in the [main MemFuse repository](https://github.com/memfuse/memfuse).
+- **GitHub Discussions:** Participate in roadmap discussions, RFCs, and Q&A in the [MemFuse Server repository](https://github.com/memfuse/memfuse)
+- **Issues & Features:** Report bugs or request features in this repository's [Python SDK Issues section](https://github.com/memfuse/memfuse-python/issues)
 
-If MemFuse is helpful to you, please ⭐ star the [main repo](https://github.com/memfuse/memfuse) and this SDK repo!
+If MemFuse enhances your projects, please ⭐ star both the [server repository](https://github.com/memfuse/memfuse) and this SDK repository!
 
 ## License
 
-This MemFuse Python SDK is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for more details.
-(You'll need to add a LICENSE file to this SDK repository, typically a copy of the Apache 2.0 license text).
+This MemFuse Python SDK is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for complete details.
