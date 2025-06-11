@@ -27,7 +27,7 @@ def handle_server_connection(func: Callable[..., Awaitable[T]]) -> Callable[...,
         except ConnectionError as e:
             print(f"\nConnection Error: {e}")
             print("\nPlease make sure the MemFuse server is running. You can start it with:")
-            print("  python -m memfuse.server --host localhost --port 8000")
+            print("  poetry run memfuse-core")
             sys.exit(1)
     return wrapper
 
@@ -49,7 +49,7 @@ async def run_with_error_handling(coro: Awaitable[T]) -> T:
     except ConnectionError as e:
         print(f"\nConnection Error: {e}")
         print("\nPlease make sure the MemFuse server is running. You can start it with:")
-        print("  python -m memfuse.server --host localhost --port 8000")
+        print("  poetry run memfuse-core")
         sys.exit(1)
     except KeyboardInterrupt:
         print("\nExiting...")

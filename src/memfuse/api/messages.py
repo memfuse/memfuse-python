@@ -33,11 +33,12 @@ class MessagesApi:
         return self.ENDPOINTS[endpoint_key]['method']
 
     def _build_list_url(
-        self, 
-        session_id: str, 
+        self,
+        session_id: str,
         limit: Optional[int] = None,
         sort_by: Optional[str] = None,
-        order: Optional[str] = None
+        order: Optional[str] = None,
+        buffer_only: Optional[bool] = None
     ) -> str:
         """Build URL for list endpoint with optional query parameters."""
         query_params = []
@@ -47,7 +48,9 @@ class MessagesApi:
             query_params.append(f"sort_by={sort_by}")
         if order is not None:
             query_params.append(f"order={order}")
-        
+        if buffer_only is not None:
+            query_params.append(f"buffer_only={str(buffer_only).lower()}")
+
         query_string = "&".join(query_params)
         endpoint = self._build_url('list', session_id=session_id)
         if query_string:
@@ -61,6 +64,7 @@ class MessagesApi:
         limit: Optional[int] = 20,
         sort_by: Optional[str] = "timestamp",
         order: Optional[str] = "desc",
+        buffer_only: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """List all messages in a session.
 
@@ -69,11 +73,12 @@ class MessagesApi:
             limit: Maximum number of messages to return. Defaults to 20.
             sort_by: Field to sort messages by (e.g., "timestamp", "id"). Defaults to "timestamp".
             order: Sort order ("asc" or "desc"). Defaults to "desc".
+            buffer_only: If True, only return RoundBuffer data; if False, return HybridBuffer + SQLite data excluding RoundBuffer
 
         Returns:
             Response data
         """
-        url = self._build_list_url(session_id, limit, sort_by, order)
+        url = self._build_list_url(session_id, limit, sort_by, order, buffer_only)
         return await self.client._request(self._get_method('list'), url)
 
     async def add(self, session_id: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -159,6 +164,7 @@ class MessagesApi:
         limit: Optional[int] = 20,
         sort_by: Optional[str] = "timestamp",
         order: Optional[str] = "desc",
+        buffer_only: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """List all messages in a session (sync version).
 
@@ -167,11 +173,12 @@ class MessagesApi:
             limit: Maximum number of messages to return. Defaults to 20.
             sort_by: Field to sort messages by (e.g., "timestamp", "id"). Defaults to "timestamp".
             order: Sort order ("asc" or "desc"). Defaults to "desc".
+            buffer_only: If True, only return RoundBuffer data; if False, return HybridBuffer + SQLite data excluding RoundBuffer
 
         Returns:
             Response data
         """
-        url = self._build_list_url(session_id, limit, sort_by, order)
+        url = self._build_list_url(session_id, limit, sort_by, order, buffer_only)
         return self.client._request_sync(self._get_method('list'), url)
 
     def add_sync(self, session_id: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:

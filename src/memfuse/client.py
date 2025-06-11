@@ -102,7 +102,7 @@ class AsyncMemFuse:
                     f"Cannot connect to MemFuse server at {self.base_url}. "
                     "Please make sure the server is running.\n\n"
                     "You can start the server with:\n"
-                    "  python -m memfuse.server --host localhost --port 8000"
+                    "  poetry run memfuse-core"
                 )
 
             url = f"{self.base_url}{endpoint}"
@@ -121,7 +121,7 @@ class AsyncMemFuse:
                 f"Cannot connect to MemFuse server at {self.base_url}. "
                 "Please make sure the server is running.\n\n"
                 "You can start the server with:\n"
-                "  python -m memfuse.server --host localhost --port 8000"
+                "  poetry run memfuse-core"
             ) from e
 
     async def init(
@@ -320,7 +320,7 @@ class MemFuse:
                     f"Cannot connect to MemFuse server at {self.base_url}. "
                     "Please make sure the server is running.\n\n"
                     "You can start the server with:\n"
-                    "  python -m memfuse.server --host localhost --port 8000"
+                    "  poetry run memfuse-core"
                 )
 
             url = f"{self.base_url}{endpoint}"
@@ -337,7 +337,7 @@ class MemFuse:
                 f"Cannot connect to MemFuse server at {self.base_url}. "
                 "Please make sure the server is running.\n\n"
                 "You can start the server with:\n"
-                "  python -m memfuse.server --host localhost --port 8000"
+                "  poetry run memfuse-core"
             ) from e
 
     def init(
