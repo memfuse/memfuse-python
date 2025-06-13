@@ -44,10 +44,11 @@ ipykernel = "^6.29.5"
 datasets = "^3.6.0"
 colorlog = "^6.9.0"
 twine = "^6.1.0"
+poetry-dynamic-versioning = "^1.8.2"
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core", "poetry-dynamic-versioning"]
+build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -56,6 +57,7 @@ style = "pep440"
 
 [tool.poetry-dynamic-versioning.substitution]
 files = ["src/memfuse/__init__.py"]
+patterns = ["(^__version__\\s*(?::.*?)?\\s*=\\s*['\"])[^'\"]*(['\"])"]
 
 [tool.pytest.ini_options]
 markers = [

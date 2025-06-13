@@ -1,6 +1,6 @@
 """MemFuse Python Client Library"""
 
-__version__ = "{{version}}"  # Or your actual version
+__version__ = "{{version}}" 
 
 from .client import AsyncMemFuse, MemFuse
 from .memory import AsyncMemory, Memory
