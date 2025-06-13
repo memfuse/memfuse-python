@@ -50,7 +50,7 @@ def _wrap_create(
         else:
             in_db_chat_history = []
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]]
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # ------- 3. Retrieve memories ---------------------------------------
         query_string = PromptFormatter.messages_to_query(chat_history + query_messages)
