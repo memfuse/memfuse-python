@@ -10,7 +10,7 @@ from google.genai import types # types.Content, types.Part, types.GenerateConten
 # from google.genai import AsyncClient as AsyncGeminiClient # google.genai.Client can be used with an async transport
 
 from memfuse import Memory
-from memfuse.prompts import PromptContext
+from memfuse.prompts import PromptContext, PromptFormatter
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -133,26 +133,41 @@ def _instrument_generate_content_sync(
         latest_user_query_message = gemini_query_messages[-1]
     
     retrieved_memories = None
-    retrieved_chat_history = None
+    chat_history = None
     
-    if latest_user_query_message:
-        query_response = memory.query_session(latest_user_query_message["content"])
-        retrieved_memories = query_response["data"]["results"] if query_response else None
-        
+    if latest_user_query_message:    
         # Get chat history
         max_chat_history = memory.max_chat_history
-        chat_history_response = memory.list_messages(limit=max_chat_history)
-        if chat_history_response and chat_history_response.get("data", {}).get("messages"):
-            retrieved_chat_history = [
-                {"role": msg["role"], "content": msg["content"]} 
-                for msg in chat_history_response["data"]["messages"][::-1]
-            ]
+
+        in_buffer_chat_history = memory.list_messages(
+            limit=max_chat_history,
+            buffer_only=True,
+        )
+
+        in_buffer_messages_length = len(in_buffer_chat_history["data"]["messages"])
+
+        if in_buffer_messages_length < max_chat_history:
+            in_db_chat_history = memory.list_messages(
+                limit=max_chat_history - in_buffer_messages_length,
+                buffer_only=False,
+            )
+        else:
+            in_db_chat_history = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+
+        # Retrieve memories
+        query_string = PromptFormatter.messages_to_query(chat_history + gemini_query_messages)
+        query_response = memory.query_session(query_string)
+        retrieved_memories = query_response["data"]["results"] if query_response else None
+
+        logger.info(f"Retrieved memories: {retrieved_memories}")
 
     # 3. Compose the prompt context for PromptFormatter
     prompt_context = PromptContext(
         query_messages=gemini_query_messages,
         retrieved_memories=retrieved_memories,
-        retrieved_chat_history=retrieved_chat_history,
+        retrieved_chat_history=chat_history,
         max_chat_history=memory.max_chat_history,
     )
     
@@ -191,19 +206,33 @@ async def _instrument_generate_content_async(
     retrieved_memories = None
     retrieved_chat_history = None
     
-    if latest_user_query_message:
-        # Properly await async memory operations
-        query_response = await memory.query_session(latest_user_query_message["content"])
-        retrieved_memories = query_response["data"]["results"] if query_response else None
-        
+    if latest_user_query_message:    
         # Get chat history
         max_chat_history = memory.max_chat_history
-        chat_history_response = await memory.list_messages(limit=max_chat_history)
-        if chat_history_response and chat_history_response.get("data", {}).get("messages"):
-            retrieved_chat_history = [
-                {"role": msg["role"], "content": msg["content"]} 
-                for msg in chat_history_response["data"]["messages"][::-1]
-            ]
+
+        in_buffer_chat_history = await memory.list_messages(
+            limit=max_chat_history,
+            buffer_only=True,
+        )
+
+        in_buffer_messages_length = len(in_buffer_chat_history["data"]["messages"])
+
+        if in_buffer_messages_length < max_chat_history:
+            in_db_chat_history = await memory.list_messages(
+                limit=max_chat_history - in_buffer_messages_length,
+                buffer_only=False,
+            )
+        else:
+            in_db_chat_history = []
+
+        retrieved_chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+
+        # Retrieve memories
+        query_string = PromptFormatter.messages_to_query(retrieved_chat_history + gemini_query_messages)
+        query_response = await memory.query_session(query_string)
+        retrieved_memories = query_response["data"]["results"] if query_response else None
+
+        logger.info(f"Retrieved memories: {retrieved_memories}")
 
     # 3. Compose the prompt context for PromptFormatter
     prompt_context = PromptContext(
