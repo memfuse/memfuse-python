@@ -48,11 +48,22 @@ def _wrap_create(
         # ------- 2. Get the last n messages ----------------------------------
         max_chat_history = memory.max_chat_history
 
-        retrieved_chat_history = memory.list_messages(
+        in_buffer_chat_history = memory.list_messages(
             limit=max_chat_history,
+            buffer_only=True,
         )
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in retrieved_chat_history["data"]["messages"][::-1]]
+        in_buffer_messages_length = len(in_buffer_chat_history["data"]["messages"])
+
+        if in_buffer_messages_length < max_chat_history:
+            in_db_chat_history = memory.list_messages(
+                limit=max_chat_history - in_buffer_messages_length,
+                buffer_only=False,
+            )
+        else:
+            in_db_chat_history = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # ------- 3. Retrieve memories ---------------------------------------
         # Convert Anthropic formatted messages to a string for querying
@@ -146,11 +157,22 @@ def _wrap_create_async(
         # ------- 2. Get the last n messages ----------------------------------
         max_chat_history = memory.max_chat_history
 
-        retrieved_chat_history = await memory.list_messages(
+        in_buffer_chat_history = await memory.list_messages(
             limit=max_chat_history,
+            buffer_only=True,
         )
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in retrieved_chat_history["data"]["messages"][::-1]]
+        in_buffer_messages_length = len(in_buffer_chat_history["data"]["messages"])
+
+        if in_buffer_messages_length < max_chat_history:
+            in_db_chat_history = await memory.list_messages(
+                limit=max_chat_history - in_buffer_messages_length,
+                buffer_only=False,
+            )
+        else:
+            in_db_chat_history = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # ------- 3. Retrieve memories ---------------------------------------
         query_string = PromptFormatter.messages_to_query(chat_history + query_messages)
