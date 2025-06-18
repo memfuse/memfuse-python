@@ -256,6 +256,7 @@ class AsyncMemory:
         limit: Optional[int] = 20,
         sort_by: Optional[str] = "timestamp",
         order: Optional[str] = "desc",
+        buffer_only: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """List all messages in the current session's memory.
 
@@ -268,7 +269,11 @@ class AsyncMemory:
             Dict containing messages
         """
         return await self.client.messages.list(
-            session_id=self.session_id, limit=limit, sort_by=sort_by, order=order
+            session_id=self.session_id, 
+            limit=limit, 
+            sort_by=sort_by, 
+            order=order,
+            buffer_only=buffer_only,
         )
 
     async def read(self, message_ids: List[str]) -> Dict[str, Any]:
@@ -634,6 +639,7 @@ class Memory:
         limit: Optional[int] = 20,
         sort_by: Optional[str] = "timestamp",
         order: Optional[str] = "desc",
+        buffer_only: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """List all messages in the current session's memory.
 
@@ -646,7 +652,11 @@ class Memory:
             Dict containing messages
         """
         return self.client.messages.list_sync(
-            session_id=self.session_id, limit=limit, sort_by=sort_by, order=order
+            session_id=self.session_id, 
+            limit=limit, 
+            sort_by=sort_by, 
+            order=order,
+            buffer_only=buffer_only,
         )
 
     def read(self, message_ids: List[str]) -> Dict[str, Any]:

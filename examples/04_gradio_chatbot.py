@@ -8,6 +8,13 @@ load_dotenv(override=True)
 
 # Global username variable
 USERNAME = "Jane Doe"
+SYSTEM_MESSAGE = (
+    "You are a helpful AI assistant with access to a persistent long-term memory. "
+    "You can recall, reference, and use information from previous conversations with the user. "
+    "Leverage this memory to provide more relevant, helpful, and context-aware answers. "
+    "If you remember something from earlier, feel free to mention it. "
+    "If the user mentions something from a previous interaction that you don't remember, please apologize and say you must have forgotten."
+)
 
 def main():
     # Make MemFuse base URL configurable via environment variable
@@ -49,8 +56,12 @@ def main():
                 for i, item in enumerate(history):
                     print(f"DEBUG: History item {i}: type={type(item)}, content={item}")
                     if isinstance(item, dict):
-                        # History is already in message format
-                        messages_history.append(item)
+                        # History is already in message format - extract only role and content
+                        if 'role' in item and 'content' in item:
+                            messages_history.append({
+                                "role": item["role"],
+                                "content": item["content"]
+                            })
                     elif isinstance(item, (list, tuple)):
                         # Handle tuple/list format - could be (user_msg, assistant_msg) or more items
                         if len(item) >= 2:
@@ -66,7 +77,7 @@ def main():
                         print(f"Unknown history item format: {type(item)}: {item}")
             
             print(f"DEBUG: Final messages_history: {messages_history}")
-            current_messages_for_api = messages_history + [{"role": "user", "content": message}]
+            current_messages_for_api = [{"role": "system", "content": SYSTEM_MESSAGE}] + messages_history + [{"role": "user", "content": message}]
             print(f"DEBUG: Sending to API: {current_messages_for_api}")
 
             try:
