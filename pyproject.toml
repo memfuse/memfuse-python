@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "memfuse"
-version = "0.1.0"
+version = "0.0.0"
 description = "Memfuse Python SDK"
 authors = ["Calvin Ku <cku@percena.co>", "Ming Xue <mxue@percena.co>"]
 license = "Apache-2.0"
