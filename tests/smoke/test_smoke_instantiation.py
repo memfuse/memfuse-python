@@ -144,7 +144,6 @@ def test_sync_memfuse_context_manager_structure():
 @pytest.mark.smoke
 def test_can_instantiate_api_clients():
     """Test that all API client classes can be instantiated."""
-    from memfuse import AsyncMemFuse
     from memfuse.api import (
         HealthApi,
         UsersApi,
@@ -233,6 +232,8 @@ def test_can_instantiate_llm_adapters():
         AsyncOpenAI,
         Anthropic,
         AsyncAnthropic,
+        GeminiClient,
+        AsyncGeminiClient,
         MemOllama,
         AsyncMemOllama
     )
@@ -243,6 +244,8 @@ def test_can_instantiate_llm_adapters():
         (AsyncOpenAI, {}),
         (Anthropic, {}),
         (AsyncAnthropic, {}),
+        (GeminiClient, {}),
+        (AsyncGeminiClient, {}),
         (MemOllama, {}),
         (AsyncMemOllama, {})
     ]

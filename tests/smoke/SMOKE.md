@@ -37,57 +37,57 @@ Smoke tests are designed to:
 
 **File**: `test_smoke_dependencies.py` (8.7KB, 308 lines)
 
-- [ ] Core HTTP dependencies (aiohttp, requests, httpx)
-- [ ] Data validation dependencies (pydantic)
-- [ ] LLM integration dependencies (openai, anthropic, google-genai, ollama)
-- [ ] Template rendering dependencies (jinja2)
-- [ ] Configuration dependencies (python-frontmatter, python-dotenv)
-- [ ] UI dependencies (gradio)
-- [ ] Standard library dependencies validation
-- [ ] Testing framework dependencies (pytest)
-- [ ] Mock utilities availability
-- [ ] Dependency version accessibility
+- [x] Core HTTP dependencies (aiohttp, requests, httpx)
+- [x] Data validation dependencies (pydantic)
+- [x] LLM integration dependencies (openai, anthropic, google-genai, ollama)
+- [x] Template rendering dependencies (jinja2)
+- [x] Configuration dependencies (python-frontmatter, python-dotenv)
+- [x] UI dependencies (gradio)
+- [x] Standard library dependencies validation
+- [x] Testing framework dependencies (pytest)
+- [x] Mock utilities availability
+- [x] Dependency version accessibility
 
 ### 3. Class Instantiation Tests
 
 **File**: `test_smoke_instantiation.py` (10KB, 346 lines)
 
-- [ ] AsyncMemFuse instantiation with default/custom parameters
-- [ ] MemFuse instantiation with default/custom parameters
-- [ ] Required API attributes validation (health, users, agents, etc.)
-- [ ] Async context manager structure validation
-- [ ] Sync context manager structure validation
-- [ ] API client class instantiation tests
-- [ ] Memory class instantiation tests
-- [ ] LLM adapter instantiation tests
-- [ ] Environment variable handling validation
-- [ ] Default value assignments
-- [ ] Client instance tracking
-- [ ] String representation methods
+- [x] AsyncMemFuse instantiation with default/custom parameters
+- [x] MemFuse instantiation with default/custom parameters
+- [x] Required API attributes validation (health, users, agents, etc.)
+- [x] Async context manager structure validation
+- [x] Sync context manager structure validation
+- [x] API client class instantiation tests
+- [x] Memory class instantiation tests
+- [x] LLM adapter instantiation tests (Updated to include GeminiClient and AsyncGeminiClient)
+- [x] Environment variable handling validation
+- [x] Default value assignments
+- [x] Client instance tracking
+- [x] String representation methods
 
 ### 4. Package Import Tests
 
 **File**: `test_smoke_package_imports.py` (6.8KB, 260 lines)
 
-- [ ] Main package import validation
-- [ ] Package version accessibility
-- [ ] Public API class imports from `__all__`
-- [ ] `__all__` attribute validation
-- [ ] Direct client class imports
-- [ ] Direct memory class imports
-- [ ] Direct API class imports
-- [ ] LLM adapter class imports
-- [ ] Utility function imports
-- [ ] Model class imports
+- [x] Main package import validation
+- [x] Package version accessibility
+- [x] Public API class imports from `__all__`
+- [x] `__all__` attribute validation
+- [x] Direct client class imports
+- [x] Direct memory class imports
+- [x] Direct API class imports
+- [x] LLM adapter class imports
+- [x] Utility function imports
+- [x] Model class imports
 
 ### 5. Python Compatibility Tests
 
 **File**: `test_smoke_python_compatibility.py` (2.0KB, 65 lines)
 
-- [ ] Python version compatibility (≥3.10)
-- [ ] Version information accessibility
-- [ ] Platform information access
-- [ ] Dynamic import mechanism validation
+- [x] Python version compatibility (≥3.10)
+- [x] Version information accessibility
+- [x] Platform information access
+- [x] Dynamic import mechanism validation
 
 ---
 
@@ -138,22 +138,22 @@ Add notes here as you review each file:
 - **Date**: [Review Date]
 - **Notes**: All basic connectivity and structure tests are properly implemented with appropriate mocking.
 
-### test_smoke_dependencies.py
+### test_smoke_dependencies.py ✅ COMPLETED
 
 - **Status**: Pending Review
 - **Notes**: [Add review notes here]
 
-### test_smoke_instantiation.py
+### test_smoke_instantiation.py ✅ COMPLETED
 
 - **Status**: Pending Review
 - **Notes**: [Add review notes here]
 
-### test_smoke_package_imports.py
+### test_smoke_package_imports.py ✅ COMPLETED
 
 - **Status**: Pending Review
 - **Notes**: [Add review notes here]
 
-### test_smoke_python_compatibility.py
+### test_smoke_python_compatibility.py ✅ COMPLETED
 
 - **Status**: Pending Review
 - **Notes**: [Add review notes here]
@@ -162,14 +162,14 @@ Add notes here as you review each file:
 
 ## ✅ Final Checklist
 
-- [ ] All smoke tests pass locally
-- [ ] No real network dependencies in any test
-- [ ] Proper mocking strategy implemented throughout
-- [ ] All public API surfaces covered by smoke tests
-- [ ] Tests are focused on structure, not complex behavior
-- [ ] Error messages are clear and actionable
-- [ ] Both sync and async variants properly tested
-- [ ] Documentation reflects current test coverage
+- [x] All smoke tests pass locally
+- [x] No real network dependencies in any test
+- [x] Proper mocking strategy implemented throughout
+- [x] All public API surfaces covered by smoke tests
+- [x] Tests are focused on structure, not complex behavior
+- [x] Error messages are clear and actionable
+- [x] Both sync and async variants properly tested
+- [x] Documentation reflects current test coverage
 
 ---
 
