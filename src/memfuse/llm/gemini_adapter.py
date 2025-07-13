@@ -154,7 +154,18 @@ def _instrument_generate_content_sync(
         else:
             in_db_chat_history = []
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # Retrieve memories
         query_string = PromptFormatter.messages_to_query(chat_history + gemini_query_messages)
@@ -225,7 +236,18 @@ async def _instrument_generate_content_async(
         else:
             in_db_chat_history = []
 
-        retrieved_chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        retrieved_chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # Retrieve memories
         query_string = PromptFormatter.messages_to_query(retrieved_chat_history + gemini_query_messages)

@@ -20,6 +20,12 @@ def main():
     # Make MemFuse base URL configurable via environment variable
     memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
     
+    # Configure logging to see debug information from memfuse
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    memfuse_logger = logging.getLogger("memfuse.llm")
+    memfuse_logger.setLevel(logging.INFO)
+    
     try:
         memfuse = MemFuse(base_url=memfuse_base_url)  # Use synchronous client
     except Exception as e:
@@ -77,25 +83,36 @@ def main():
                         print(f"Unknown history item format: {type(item)}: {item}")
             
             print(f"DEBUG: Final messages_history: {messages_history}")
-            current_messages_for_api = [{"role": "system", "content": SYSTEM_MESSAGE}] + messages_history + [{"role": "user", "content": message}]
+            # Only pass the system message and current user message - let MemFuse handle the history
+            current_messages_for_api = [{"role": "system", "content": SYSTEM_MESSAGE}, {"role": "user", "content": message}]
             print(f"DEBUG: Sending to API: {current_messages_for_api}")
 
             try:
                 # Call the synchronous LLM API WITHOUT streaming (traditional response)
+                print("DEBUG: About to call client.chat.completions.create")
                 response_obj = client.chat.completions.create(
                     model="gpt-4o-mini", # Or your preferred model
-                    messages=current_messages_for_api, # Pass the combined history and current message
+                    messages=current_messages_for_api, # Pass only system message and current user message
                     stream=False  # Disable streaming for traditional response
                 )
+                print(f"DEBUG: Got response_obj type: {type(response_obj)}")
+                print(f"DEBUG: response_obj: {response_obj}")
                 
                 # Return the complete response at once
                 if response_obj and response_obj.choices and response_obj.choices[0].message:
+                    print(f"DEBUG: response_obj.choices type: {type(response_obj.choices)}")
+                    print(f"DEBUG: response_obj.choices[0] type: {type(response_obj.choices[0])}")
+                    print(f"DEBUG: response_obj.choices[0].message type: {type(response_obj.choices[0].message)}")
+                    print(f"DEBUG: response_obj.choices[0].message.content: {response_obj.choices[0].message.content}")
                     return response_obj.choices[0].message.content
                 else:
                     return "Sorry, I didn't receive a proper response."
                         
             except Exception as e:
                 print(f"Error calling LLM: {e}")
+                print(f"Error type: {type(e)}")
+                import traceback
+                traceback.print_exc()
                 return "Sorry, I encountered an error."
 
         # Create simple ChatInterface for non-streaming responses

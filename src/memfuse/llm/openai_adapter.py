@@ -50,12 +50,43 @@ def _wrap_create(
         else:
             in_db_chat_history = []
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # ------- 3. Retrieve memories ---------------------------------------
         query_string = PromptFormatter.messages_to_query(chat_history + query_messages)
+        logger.info(f"Query string for memory: {query_string}")
         query_response = memory.query_session(query_string)
-        retrieved_memories = query_response["data"]["results"]
+        logger.info(f"Query response type: {type(query_response)}")
+        logger.info(f"Query response content: {query_response}")
+
+        # Log the structure of the response to understand the format
+        if isinstance(query_response, dict):
+            logger.info(f"Query response keys: {list(query_response.keys())}")
+            if "data" in query_response:
+                logger.info(f"query_response['data'] type: {type(query_response['data'])}")
+                logger.info(f"query_response['data'] content: {query_response['data']}")
+                if isinstance(query_response["data"], dict):
+                    logger.info(f"query_response['data'] keys: {list(query_response['data'].keys())}")
+
+        try:
+            retrieved_memories = query_response["data"]["results"]
+            logger.info(f"Successfully retrieved memories: {retrieved_memories}")
+        except Exception as e:
+            logger.error(f"Error accessing query_response['data']['results']: {e}")
+            logger.error(f"Exception type: {type(e)}")
+            # Re-raise the exception to see the full traceback
+            raise
 
         # ------- 4. Compose the prompt --------------------------
         prompt_context = PromptContext(
@@ -90,7 +121,15 @@ def _wrap_create(
                     yield chunk
                 
                 # After streaming is complete, persist the messages
-                messages_to_persist = list(query_messages)
+                # Extract only the new user messages (excluding system messages and chat history)
+                messages_to_persist = []
+                for msg in query_messages:
+                    if msg.get("role") == "user":
+                        messages_to_persist.append({
+                            "role": "user",
+                            "content": msg.get("content", "")
+                        })
+                
                 if assistant_response_content.strip():
                     messages_to_persist.append({
                         "role": "assistant",
@@ -98,6 +137,7 @@ def _wrap_create(
                     })
                 
                 if messages_to_persist:
+                    logger.info(f"Persisting streaming messages: {messages_to_persist}")
                     result = memory.add(messages=messages_to_persist)
                     if result and result.get("data") and result["data"].get("message_ids"):
                         message_ids = result["data"]["message_ids"]
@@ -113,7 +153,14 @@ def _wrap_create(
             response = create_fn(*bound.args, **bound.kwargs)
 
             # ------- 6. Persist *only* the new interaction ----------------------
-            messages_to_persist = list(query_messages) # Start with the original user messages for this turn
+            # Extract only the new user messages (excluding system messages and chat history)
+            messages_to_persist = []
+            for msg in query_messages:
+                if msg.get("role") == "user":
+                    messages_to_persist.append({
+                        "role": "user",
+                        "content": msg.get("content", "")
+                    })
             
             if response and response.choices and response.choices[0].message:
                 assistant_message = response.choices[0].message
@@ -123,12 +170,23 @@ def _wrap_create(
                 })
                 
             if messages_to_persist: # Only add if there's something to add
-                result = memory.add(messages=messages_to_persist)
-                if result and result.get("data") and result["data"].get("message_ids"):
-                    message_ids = result["data"]["message_ids"]
-                    logger.info(f"Persisted message IDs: {message_ids}")
-                else:
-                    logger.info("Failed to persist messages or no message IDs returned.")
+                logger.info(f"Persisting messages: {messages_to_persist}")
+                try:
+                    logger.info(f"About to call memory.add with messages: {messages_to_persist}")
+                    result = memory.add(messages=messages_to_persist)
+                    logger.info(f"Memory.add result type: {type(result)}")
+                    logger.info(f"Memory.add result content: {result}")
+                    if result and result.get("data") and result["data"].get("message_ids"):
+                        message_ids = result["data"]["message_ids"]
+                        logger.info(f"Persisted message IDs: {message_ids}")
+                    else:
+                        logger.info("Failed to persist messages or no message IDs returned.")
+                except Exception as e:
+                    logger.error(f"Error in memory.add: {e}")
+                    logger.error(f"Exception type: {type(e)}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    raise
             else:
                 logger.info("No messages to persist for this interaction.")
             
@@ -178,14 +236,44 @@ def _async_wrap_create(
         else:
             in_db_chat_history = []
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # ------- 3. Retrieve memories ---------------------------------------
         query_string = PromptFormatter.messages_to_query(chat_history + query_messages)
+        logger.info(f"Query string for memory: {query_string}")
         query_response = await memory.query_session(query_string)
-        retrieved_memories = query_response["data"]["results"]
+        logger.info(f"Query response type: {type(query_response)}")
+        logger.info(f"Query response content: {query_response}")
 
-        logger.info(retrieved_memories)
+        # Log the structure of the response to understand the format
+        if isinstance(query_response, dict):
+            logger.info(f"Query response keys: {list(query_response.keys())}")
+            if "data" in query_response:
+                logger.info(f"query_response['data'] type: {type(query_response['data'])}")
+                logger.info(f"query_response['data'] content: {query_response['data']}")
+                if isinstance(query_response["data"], dict):
+                    logger.info(f"query_response['data'] keys: {list(query_response['data'].keys())}")
+
+        try:
+            retrieved_memories = query_response["data"]["results"]
+            logger.info(f"Successfully retrieved memories: {retrieved_memories}")
+        except Exception as e:
+            logger.error(f"Error accessing query_response['data']['results']: {e}")
+            logger.error(f"Exception type: {type(e)}")
+            # Re-raise the exception to see the full traceback
+            raise
+
         # ------- 4. Compose the prompt --------------------------
         prompt_context = PromptContext(
             query_messages=query_messages,
@@ -219,7 +307,15 @@ def _async_wrap_create(
                     yield chunk
                 
                 # After streaming is complete, persist the messages
-                messages_to_persist = list(query_messages)
+                # Extract only the new user messages (excluding system messages and chat history)
+                messages_to_persist = []
+                for msg in query_messages:
+                    if msg.get("role") == "user":
+                        messages_to_persist.append({
+                            "role": "user",
+                            "content": msg.get("content", "")
+                        })
+                
                 if assistant_response_content.strip():
                     messages_to_persist.append({
                         "role": "assistant",
@@ -227,6 +323,7 @@ def _async_wrap_create(
                     })
                 
                 if messages_to_persist:
+                    logger.info(f"Persisting async streaming messages: {messages_to_persist}")
                     result = await memory.add(messages=messages_to_persist)
                     if result and result.get("data") and result["data"].get("message_ids"):
                         message_ids = result["data"]["message_ids"]
@@ -242,7 +339,14 @@ def _async_wrap_create(
             response = await create_fn(*bound.args, **bound.kwargs)
 
             # ------- 6. Persist *only* the new interaction ----------------------
-            messages_to_persist = list(query_messages) # Start with the original user messages for this turn
+            # Extract only the new user messages (excluding system messages and chat history)
+            messages_to_persist = []
+            for msg in query_messages:
+                if msg.get("role") == "user":
+                    messages_to_persist.append({
+                        "role": "user",
+                        "content": msg.get("content", "")
+                    })
             
             if response and response.choices and response.choices[0].message:
                 assistant_message = response.choices[0].message
@@ -252,6 +356,7 @@ def _async_wrap_create(
                 })
                 
             if messages_to_persist: # Only add if there's something to add
+                logger.info(f"Persisting messages: {messages_to_persist}")
                 result = await memory.add(messages=messages_to_persist)
                 if result and result.get("data") and result["data"].get("message_ids"):
                     message_ids = result["data"]["message_ids"]

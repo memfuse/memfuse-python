@@ -5,6 +5,7 @@ import aiohttp
 from typing import Dict, Optional, Any, List
 
 from .memory import AsyncMemory
+from .utils import MemFuseHTTPError
 from .api import (
     HealthApi,
     UsersApi,
@@ -111,7 +112,7 @@ class AsyncMemFuse:
                 response_data = await response.json()
                 if response.status >= 400:
                     error_message = response_data.get("message", "Unknown error")
-                    raise Exception(f"API request failed: {error_message}")
+                    raise MemFuseHTTPError(f"API request failed: {error_message}", response.status, response_data)
                 return response_data
 
         except aiohttp.ClientConnectorError as e:
@@ -142,51 +143,61 @@ class AsyncMemFuse:
         """
         # Get or create user
         user_name = user
-        user_response = await self.users.get_by_name(user_name)
-
-        if user_response["status"] == "error" or not user_response.get("data", {}).get("users"):
-            # User doesn't exist, create it
-            user_response = await self.users.create(
-                name=user_name,
-                description="User created by MemFuse client"
-            )
-            user_id = user_response["data"]["user"]["id"]
-        else:
-            # User exists, get the first one
+        try:
+            user_response = await self.users.get_by_name(user_name)
+            # If we get here, the user exists
             user_id = user_response["data"]["users"][0]["id"]
+        except MemFuseHTTPError as e:
+            if e.status_code == 404:
+                # User doesn't exist, create it
+                user_response = await self.users.create(
+                    name=user_name,
+                    description="User created by MemFuse client"
+                )
+                user_id = user_response["data"]["user"]["id"]
+            else:
+                # Re-raise other HTTP errors
+                raise
 
         # Get or create agent
         agent_name = agent or "agent_default"
-        agent_response = await self.agents.get_by_name(agent_name)
-
-        if agent_response["status"] == "error" or not agent_response.get("data", {}).get("agents"):
-            # Agent doesn't exist, create it
-            agent_response = await self.agents.create(
-                name=agent_name,
-                description="Agent created by MemFuse client"
-            )
-            agent_id = agent_response["data"]["agent"]["id"]
-        else:
-            # Agent exists, get the first one
+        try:
+            agent_response = await self.agents.get_by_name(agent_name)
+            # If we get here, the agent exists
             agent_id = agent_response["data"]["agents"][0]["id"]
+        except MemFuseHTTPError as e:
+            if e.status_code == 404:
+                # Agent doesn't exist, create it
+                agent_response = await self.agents.create(
+                    name=agent_name,
+                    description="Agent created by MemFuse client"
+                )
+                agent_id = agent_response["data"]["agent"]["id"]
+            else:
+                # Re-raise other HTTP errors
+                raise
 
         # Check if session with the given name already exists
         session_name = session
         if session_name:
-            session_response = await self.sessions.get_by_name(session_name, user_id=user_id)
-            if session_response["status"] == "success" and session_response.get("data", {}).get("sessions"):
-                # Session exists, get the first one
+            try:
+                session_response = await self.sessions.get_by_name(session_name, user_id=user_id)
+                # If we get here, the session exists
                 session_data = session_response["data"]["sessions"][0]
                 session_id = session_data["id"]
-            else:
-                # Session doesn't exist, create it
-                session_response = await self.sessions.create(
-                    user_id=user_id,
-                    agent_id=agent_id,
-                    name=session_name
-                )
-                session_data = session_response["data"]["session"]
-                session_id = session_data["id"]
+            except MemFuseHTTPError as e:
+                if e.status_code == 404:
+                    # Session doesn't exist, create it
+                    session_response = await self.sessions.create(
+                        user_id=user_id,
+                        agent_id=agent_id,
+                        name=session_name
+                    )
+                    session_data = session_response["data"]["session"]
+                    session_id = session_data["id"]
+                else:
+                    # Re-raise other HTTP errors
+                    raise
         else:
             # No session name provided, create a new session
             session_response = await self.sessions.create(
@@ -329,7 +340,7 @@ class MemFuse:
             response_data = response.json()
             if response.status_code >= 400:
                 error_message = response_data.get("message", "Unknown error")
-                raise Exception(f"API request failed: {error_message}")
+                raise MemFuseHTTPError(f"API request failed: {error_message}", response.status_code, response_data)
             return response_data
 
         except requests.exceptions.ConnectionError as e:
@@ -358,51 +369,61 @@ class MemFuse:
         """
         # Get or create user
         user_name = user
-        user_response = self.users.get_by_name_sync(user_name)
-
-        if user_response["status"] == "error" or not user_response.get("data", {}).get("users"):
-            # User doesn't exist, create it
-            user_response = self.users.create_sync(
-                name=user_name,
-                description="User created by MemFuse client"
-            )
-            user_id = user_response["data"]["user"]["id"]
-        else:
-            # User exists, get the first one
+        try:
+            user_response = self.users.get_by_name_sync(user_name)
+            # If we get here, the user exists
             user_id = user_response["data"]["users"][0]["id"]
+        except MemFuseHTTPError as e:
+            if e.status_code == 404:
+                # User doesn't exist, create it
+                user_response = self.users.create_sync(
+                    name=user_name,
+                    description="User created by MemFuse client"
+                )
+                user_id = user_response["data"]["user"]["id"]
+            else:
+                # Re-raise other HTTP errors
+                raise
 
         # Get or create agent
         agent_name = agent or "agent_default"
-        agent_response = self.agents.get_by_name_sync(agent_name)
-
-        if agent_response["status"] == "error" or not agent_response.get("data", {}).get("agents"):
-            # Agent doesn't exist, create it
-            agent_response = self.agents.create_sync(
-                name=agent_name,
-                description="Agent created by MemFuse client"
-            )
-            agent_id = agent_response["data"]["agent"]["id"]
-        else:
-            # Agent exists, get the first one
+        try:
+            agent_response = self.agents.get_by_name_sync(agent_name)
+            # If we get here, the agent exists
             agent_id = agent_response["data"]["agents"][0]["id"]
+        except MemFuseHTTPError as e:
+            if e.status_code == 404:
+                # Agent doesn't exist, create it
+                agent_response = self.agents.create_sync(
+                    name=agent_name,
+                    description="Agent created by MemFuse client"
+                )
+                agent_id = agent_response["data"]["agent"]["id"]
+            else:
+                # Re-raise other HTTP errors
+                raise
 
         # Check if session with the given name already exists
         session_name = session
         if session_name:
-            session_response = self.sessions.get_by_name_sync(session_name, user_id=user_id)
-            if session_response["status"] == "success" and session_response.get("data", {}).get("sessions"):
-                # Session exists, get the first one
+            try:
+                session_response = self.sessions.get_by_name_sync(session_name, user_id=user_id)
+                # If we get here, the session exists
                 session_data = session_response["data"]["sessions"][0]
                 session_id = session_data["id"]
-            else:
-                # Session doesn't exist, create it
-                session_response = self.sessions.create_sync(
-                    user_id=user_id,
-                    agent_id=agent_id,
-                    name=session_name
-                )
-                session_data = session_response["data"]["session"]
-                session_id = session_data["id"]
+            except MemFuseHTTPError as e:
+                if e.status_code == 404:
+                    # Session doesn't exist, create it
+                    session_response = self.sessions.create_sync(
+                        user_id=user_id,
+                        agent_id=agent_id,
+                        name=session_name
+                    )
+                    session_data = session_response["data"]["session"]
+                    session_id = session_data["id"]
+                else:
+                    # Re-raise other HTTP errors
+                    raise
         else:
             # No session name provided, create a new session
             session_response = self.sessions.create_sync(

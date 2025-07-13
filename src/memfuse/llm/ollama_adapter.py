@@ -45,7 +45,16 @@ def _wrap_chat(
             #     session_id=memory.session_id, # session_id needs to be available
             #     limit=max_chat_history,
             # )
-            # chat_history = retrieved_chat_history["data"]["messages"][::-1]
+            # TODO: Remove this defensive handling once the server API is fixed to consistently return
+            # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+            # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+            # When re-enabling memory operations, add defensive handling like other adapters:
+            # if isinstance(retrieved_chat_history, dict) and "data" in retrieved_chat_history:
+            #     chat_history = retrieved_chat_history["data"]["messages"][::-1]
+            # elif isinstance(retrieved_chat_history, list):
+            #     chat_history = retrieved_chat_history[::-1]
+            # else:
+            #     chat_history = []
 
             # ------- 3. Retrieve memories (Commented out, kept from original) -------
             query_string = PromptFormatter.messages_to_query(query_messages)
@@ -135,6 +144,11 @@ def _wrap_chat(
             query_messages: List[Dict[str, Any]] = bound.arguments["messages"]
             query_string = PromptFormatter.messages_to_query(query_messages)
             retrieved_memories = None
+            
+            # TODO: Remove this defensive handling once the server API is fixed to consistently return
+            # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+            # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+            # When implementing memory operations, add defensive handling like other adapters
 
             prompt_context = PromptContext(
                 query_messages=query_messages,
