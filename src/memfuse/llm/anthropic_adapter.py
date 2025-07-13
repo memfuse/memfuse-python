@@ -63,7 +63,18 @@ def _wrap_create(
         else:
             in_db_chat_history = []
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # ------- 3. Retrieve memories ---------------------------------------
         # Convert Anthropic formatted messages to a string for querying
@@ -172,7 +183,18 @@ def _wrap_create_async(
         else:
             in_db_chat_history = []
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # ------- 3. Retrieve memories ---------------------------------------
         query_string = PromptFormatter.messages_to_query(chat_history + query_messages)

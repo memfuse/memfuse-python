@@ -45,6 +45,7 @@ datasets = "^3.6.0"
 colorlog = "^6.9.0"
 twine = "^6.1.0"
 poetry-dynamic-versioning = "^1.8.2"
+pytest-asyncio = "^1.0.0"
 
 [build-system]
 requires = ["poetry-core", "poetry-dynamic-versioning"]
