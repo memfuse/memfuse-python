@@ -65,13 +65,13 @@ response5 = client.chat.completions.create(
 print("\n--- Fifth Response ---")
 print(response5.choices[0].message.content)
 
-# Sixth message - testing context switching with an unrelated question about a band
+# Sixth message - testing persistent memory with a related follow-up about Europa
 response6 = client.chat.completions.create(
     model="gpt-4o-mini",
-    messages=[{"role": "user", "content": "Tell me about the band Thirty Seconds to Mars. Who is the lead singer?"}],
+    messages=[{"role": "user", "content": "What about Europa, Jupiter's moon? How would it compare with the two we discussed?"}],
 )
 
-print("\n--- Sixth Response (Testing Context Switching) ---")
+print("\n--- Sixth Response (Testing Persistent Memory) ---")
 print(response6.choices[0].message.content)
 
 # The LLM remembers the entire conversation context thanks to MemFuse

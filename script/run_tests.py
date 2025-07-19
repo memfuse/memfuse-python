@@ -23,13 +23,14 @@ LAYERS = [
 ]
 
 
-def run_layer(name, path, verbose=False):
+def run_layer(name, path, verbose=False, show_output=False):
     """Run tests for a specific layer.
     
     Args:
         name: Name of the test layer
         path: Path to the test directory
         verbose: Whether to show verbose output
+        show_output: Whether to show test output (stdout/print statements)
         
     Returns:
         bool: True if tests passed, False otherwise
@@ -46,29 +47,39 @@ def run_layer(name, path, verbose=False):
     else:
         cmd.append("-q")
     
+    if show_output:
+        cmd.append("-s")  # Show output (don't capture stdout)
+    
     # Run the tests
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    if show_output:
+        # Don't capture output so we can see print statements in real-time
+        result = subprocess.run(cmd)
+    else:
+        # Capture output for processing
+        result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
         print(f"\n❌ {name} tests FAILED!")
-        print("STDOUT:")
-        print(result.stdout)
-        print("\nSTDERR:")
-        print(result.stderr)
+        if not show_output:  # Only print captured output if we captured it
+            print("STDOUT:")
+            print(result.stdout)
+            print("\nSTDERR:")
+            print(result.stderr)
         return False
 
     print(f"✅ {name} tests PASSED!")
-    if verbose:
+    if verbose and not show_output:  # Only print captured output if we captured it
         print(result.stdout)
     return True
 
 
-def run_specific_layer(layer_name, verbose=False):
+def run_specific_layer(layer_name, verbose=False, show_output=False):
     """Run tests for a specific layer only.
     
     Args:
         layer_name: Name of the layer to run
         verbose: Whether to show verbose output
+        show_output: Whether to show test output (stdout/print statements)
         
     Returns:
         bool: True if tests passed, False otherwise
@@ -78,7 +89,7 @@ def run_specific_layer(layer_name, verbose=False):
             if not Path(path).exists():
                 print(f"❌ Layer '{layer_name}' not found at path {path}")
                 return False
-            return run_layer(name, path, verbose)
+            return run_layer(name, path, verbose, show_output)
     
     print(f"❌ Unknown layer '{layer_name}'")
     print(f"Available layers: {', '.join([name for name, _ in LAYERS])}")
@@ -90,6 +101,7 @@ def main():
     parser = argparse.ArgumentParser(description='Run MemFuse Python SDK tests')
     parser.add_argument('--layer', '-l', help='Run specific layer only')
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    parser.add_argument('--show-output', '-s', action='store_true', help='Show test output (stdout/print statements)')
     parser.add_argument('--list', action='store_true', help='List available layers')
     
     args = parser.parse_args()
@@ -107,7 +119,7 @@ def main():
         return
     
     if args.layer:
-        success = run_specific_layer(args.layer, args.verbose)
+        success = run_specific_layer(args.layer, args.verbose, args.show_output)
         sys.exit(0 if success else 1)
     
     # Run all layers in sequence
@@ -119,7 +131,7 @@ def main():
             print(f"⏭️  Skipping {name} tests - path {path} not found")
             continue
 
-        if not run_layer(name, path, args.verbose):
+        if not run_layer(name, path, args.verbose, args.show_output):
             print(f"\n❌ Stopping test run due to {name} layer failure")
             sys.exit(1)
 

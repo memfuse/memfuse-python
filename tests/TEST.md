@@ -140,13 +140,81 @@ project/
 
 **Purpose**: Validate against real backend (when available)
 
-- Real server integration
-- Performance benchmarks
-- Long-running operations
-- Network resilience
-- Backward compatibility
+#### Current E2E Test Suite
 
-**Configuration**: Should be skippable via environment variable when server unavailable
+The e2e layer includes comprehensive tests that validate MemFuse's conversational memory capabilities:
+
+**Memory Follow-up Test** (`test_e2e_memory_followup.py`)
+
+- Tests basic conversational memory by asking about Mars, then using "that planet" in follow-up
+- Validates that MemFuse injects previous context into LLM prompts
+- Uses RAGAS semantic similarity (with Ollama embeddings) for automated verification
+- Falls back to regex matching if RAGAS/Ollama unavailable
+
+**Async Memory Follow-up Test** (`test_e2e_async_memory_followup.py`)
+
+- Async version of the memory follow-up test using `AsyncMemFuse` and `AsyncOpenAI`
+- Tests both manual cleanup and context manager patterns
+- Includes Jupiter/moons conversation test with direct memory operations
+- Proper async resource management with cleanup verification
+
+**Multi-turn Memory Test** (`test_e2e_multi_turn_memory.py`)
+
+- Comprehensive 6-turn conversation flow: Moon → Mars → colonization → challenges → resources → Europa
+- Tests progressive context building across multiple conversation turns
+- Ultimate memory test: "Europa compared to the two we discussed" after 5 intervening turns
+- Validates that MemFuse maintains long-term conversational context
+
+#### Test Verification Strategy
+
+**Primary**: RAGAS Semantic Similarity
+
+- Uses Ollama embeddings (`nomic-embed-text` model) for local, cost-free evaluation
+- Computes semantic similarity scores between expected and actual responses
+- Configurable similarity thresholds (currently 0.15)
+- Provides transparency with logged scores and analysis
+
+**Fallback**: Regex Pattern Matching
+
+- Used when RAGAS or Ollama dependencies unavailable
+- Pattern-based verification for key terms and concepts
+- Ensures tests work in minimal environments
+
+#### Running E2E Tests
+
+**All E2E tests**:
+
+```bash
+poetry run script/run_tests.py --layer e2e
+```
+
+**With output logging** (to see RAGAS scores and debug info):
+
+```bash
+poetry run script/run_tests.py --layer e2e --show-output
+```
+
+**Individual test**:
+
+```bash
+poetry run pytest tests/e2e/test_e2e_memory_followup.py::test_memory_followup_includes_mars_reference -v -s
+```
+
+#### Requirements
+
+- `OPENAI_API_KEY` environment variable (required)
+- `MEMFUSE_BASE_URL` environment variable (defaults to `http://127.0.0.1:8000`)
+- Running MemFuse server instance
+- Optional: Ollama server with `nomic-embed-text` model for RAGAS evaluation
+
+#### Dependencies
+
+E2E tests use additional dev dependencies for enhanced verification:
+
+- `ragas ^0.2.0` - For semantic similarity evaluation
+- `langchain-ollama ^0.2.0` - For local embeddings (avoids OpenAI API costs)
+
+**Configuration**: Tests are automatically skipped when required environment variables are missing or server is unavailable
 
 ## Test Implementation Guidelines
 
@@ -239,12 +307,31 @@ def run_layer(name, path):
 
 def main():
     """Run all test layers in sequence."""
+    parser = argparse.ArgumentParser(description='Run MemFuse Python SDK tests')
+    parser.add_argument('--layer', '-l', help='Run specific layer only')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    parser.add_argument('--show-output', '-s', action='store_true', help='Show test output (stdout/print statements)')
+    parser.add_argument('--list', action='store_true', help='List available layers')
+
+    args = parser.parse_args()
+
+    if args.list:
+        print("Available test layers:")
+        for name, path in LAYERS:
+            exists = "✅" if Path(path).exists() else "❌"
+            print(f"  {exists} {name:<15} - {path}")
+        return
+
+    if args.layer:
+        success = run_specific_layer(args.layer, args.verbose, args.show_output)
+        sys.exit(0 if success else 1)
+
     for name, path in LAYERS:
         if not Path(path).exists():
             print(f"Skipping {name} tests - path {path} not found")
             continue
 
-        if not run_layer(name, path):
+        if not run_layer(name, path, args.verbose, args.show_output):
             print(f"\nStopping test run due to {name} layer failure")
             sys.exit(1)
 
