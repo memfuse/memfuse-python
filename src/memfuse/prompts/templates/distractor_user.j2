@@ -1,0 +1,46 @@
+---
+description: A template for generating multiple-choice question distractors
+author: Calvin
+version: 1.0
+---
+
+<question>
+{{ question }}
+</question>
+
+{% if adversarial_answer %}
+<existing_answers>
+Base answers already provided:
+- "Not answerable"
+- "{{ adversarial_answer }}"
+</existing_answers>
+
+<task>
+Generate {{ needed_distractors }} additional plausible but incorrect answer choices for this question.
+These should be specific factual answers that someone might believe could be correct, but are actually wrong.
+</task>
+{% else %}
+<correct_answer>
+Correct answer already provided: {{ correct_answer }}
+</correct_answer>
+
+<task>
+Generate {{ needed_distractors }} additional answer choices that follow the same format and style as the correct answer, but with different factual content.
+</task>
+{% endif %}
+
+<requirements>
+1. Generate exactly {{ needed_distractors }} distractors
+2. Match the format, style, and length of the provided correct answer
+3. Keep answers concise and specific (under 200 characters each)
+4. If the correct answer is a date, generate other plausible dates
+5. If the correct answer is a name, generate other similar names
+6. If the correct answer is a location, generate other locations
+7. If the correct answer is a number/quantity, generate other plausible numbers
+8. Don't repeat any of the provided base answers
+9. Make them factually incorrect but believable alternatives
+</requirements>
+
+<response_format>
+Provide your distractors as a simple list, one per line, without numbering or bullet points.
+</response_format>
