@@ -10,6 +10,7 @@ import subprocess
 import os
 from pathlib import Path
 import argparse
+import time
 
 
 # Test layers in order of execution
@@ -19,7 +20,8 @@ LAYERS = [
     ("error_handling", "tests/error_handling"),
     ("integration", "tests/integration"),
     ("dx", "tests/dx"),
-    ("e2e", "tests/e2e")
+    ("e2e", "tests/e2e"),
+    ("benchmarks", "tests/benchmarks")
 ]
 
 
@@ -38,6 +40,9 @@ def run_layer(name, path, verbose=False, show_output=False):
     print(f"\n{'='*60}")
     print(f"Running {name} tests...")
     print(f"{'='*60}")
+
+    # Start timing
+    start_time = time.time()
 
     # Build pytest command
     cmd = [sys.executable, "-m", "pytest", path, "-m", name]
@@ -58,8 +63,15 @@ def run_layer(name, path, verbose=False, show_output=False):
         # Capture output for processing
         result = subprocess.run(cmd, capture_output=True, text=True)
 
-    if result.returncode != 0:
-        print(f"\n❌ {name} tests FAILED!")
+    # Calculate elapsed time
+    elapsed_time = time.time() - start_time
+
+    if result.returncode == 5:
+        # Exit code 5 means "no tests collected" - treat as success for empty layers
+        print(f"⏭️  {name} tests - no tests found (empty layer) ({elapsed_time:.2f}s)")
+        return True
+    elif result.returncode != 0:
+        print(f"\n❌ {name} tests FAILED! ({elapsed_time:.2f}s)")
         if not show_output:  # Only print captured output if we captured it
             print("STDOUT:")
             print(result.stdout)
@@ -67,7 +79,7 @@ def run_layer(name, path, verbose=False, show_output=False):
             print(result.stderr)
         return False
 
-    print(f"✅ {name} tests PASSED!")
+    print(f"✅ {name} tests PASSED! ({elapsed_time:.2f}s)")
     if verbose and not show_output:  # Only print captured output if we captured it
         print(result.stdout)
     return True
@@ -119,12 +131,21 @@ def main():
         return
     
     if args.layer:
+        start_time = time.time()
         success = run_specific_layer(args.layer, args.verbose, args.show_output)
+        elapsed_time = time.time() - start_time
+        if success:
+            print(f"\n✅ Layer '{args.layer}' completed successfully! (Total time: {elapsed_time:.2f}s)")
+        else:
+            print(f"\n❌ Layer '{args.layer}' failed! (Total time: {elapsed_time:.2f}s)")
         sys.exit(0 if success else 1)
     
     # Run all layers in sequence
     print("🚀 Starting MemFuse Python SDK test suite...")
     print(f"Project root: {project_root}")
+    
+    # Start total timing
+    total_start_time = time.time()
     
     for name, path in LAYERS:
         if not Path(path).exists():
@@ -135,8 +156,11 @@ def main():
             print(f"\n❌ Stopping test run due to {name} layer failure")
             sys.exit(1)
 
+    # Calculate total elapsed time
+    total_elapsed_time = time.time() - total_start_time
+    
     print("\n🎉 All test layers passed!")
-    print("✅ MemFuse Python SDK tests completed successfully!")
+    print(f"✅ MemFuse Python SDK tests completed successfully! (Total time: {total_elapsed_time:.2f}s)")
 
 
 if __name__ == "__main__":

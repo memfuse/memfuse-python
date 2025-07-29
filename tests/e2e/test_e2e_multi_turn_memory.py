@@ -42,15 +42,16 @@ def _mentions_europa_comparison(text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.e2e
-@pytest.mark.skipif(
-    not os.getenv("OPENAI_API_KEY"),
-    reason="Requires OPENAI_API_KEY environment variable"
-)
 def test_multi_turn_conversation_memory():
     """Test that MemFuse maintains context across a 6-turn conversation."""
     
     # Load environment variables
     load_dotenv(override=True)
+    
+    # Skip if API key not available
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        pytest.skip("OPENAI_API_KEY not set – skipping E2E memory test")
     
     # Setup
     memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
