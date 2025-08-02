@@ -113,7 +113,8 @@ def main():
     parser = argparse.ArgumentParser(description='Run MemFuse Python SDK tests')
     parser.add_argument('--layer', '-l', help='Run specific layer only')
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
-    parser.add_argument('--show-output', '-s', action='store_true', help='Show test output (stdout/print statements)')
+    parser.add_argument('--show-output', '-s', action='store_true', default=True, help='Show test output (stdout/print statements) - enabled by default')
+    parser.add_argument('--hide-output', action='store_true', help='Hide test output (capture stdout/stderr)')
     parser.add_argument('--list', action='store_true', help='List available layers')
     
     args = parser.parse_args()
@@ -130,9 +131,12 @@ def main():
             print(f"  {exists} {name:<15} - {path}")
         return
     
+    # Handle show_output logic
+    show_output = args.show_output and not args.hide_output
+    
     if args.layer:
         start_time = time.time()
-        success = run_specific_layer(args.layer, args.verbose, args.show_output)
+        success = run_specific_layer(args.layer, args.verbose, show_output)
         elapsed_time = time.time() - start_time
         if success:
             print(f"\n✅ Layer '{args.layer}' completed successfully! (Total time: {elapsed_time:.2f}s)")
@@ -152,7 +156,7 @@ def main():
             print(f"⏭️  Skipping {name} tests - path {path} not found")
             continue
 
-        if not run_layer(name, path, args.verbose, args.show_output):
+        if not run_layer(name, path, args.verbose, show_output):
             print(f"\n❌ Stopping test run due to {name} layer failure")
             sys.exit(1)
 

@@ -6,10 +6,10 @@ warnings.filterwarnings("ignore", message=".*Pydantic serializer warnings.*")
 os.environ["LITELLM_LOG"] = "ERROR"
 
 from litellm import completion
-from utils.data_models import MultipleChoiceResponse
+from tests.utils.data_models import MultipleChoiceResponse
 import json
 import logging
-from utils.prompts import Prompt
+from tests.utils.prompts import Prompt
 
 
 def call_openrouter(
