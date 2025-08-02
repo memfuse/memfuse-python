@@ -31,7 +31,8 @@ def call_openrouter(
                 {"role": "user", "content": user_prompt}
             ],
             response_format=MultipleChoiceResponse,
-            temperature=temperature
+            temperature=temperature,
+            api_key=os.getenv("OPENAI_API_KEY")
         )
 
         # Parse the response content as JSON
