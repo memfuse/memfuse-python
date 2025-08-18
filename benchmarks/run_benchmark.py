@@ -36,15 +36,15 @@ from benchmarks.utils import (
 DATASET_CONFIGS = {
     "msc": {
         "top_k": 3,
-        "model_name": "openrouter/openai/gpt-4o-mini"
+        "model_name": os.getenv("OPENAI_COMPATIBLE_MODEL", "openrouter/openai/gpt-4o-mini")
     },
     "lme": {
         "top_k": 20,
-        "model_name": "openai/gpt-4o-mini"
+        "model_name": os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-4o-mini")
     },
     "locomo": {
         "top_k": 5,
-        "model_name": "openai/gpt-4o-mini"
+        "model_name": os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-4o-mini")
     }
 }
 

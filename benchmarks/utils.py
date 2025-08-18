@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import random
 import time
 import uuid
@@ -572,6 +573,7 @@ async def run_benchmark_evaluation(
     from memfuse import AsyncMemFuse
     from tests.utils.prompts import create_prompt
     from tests.utils.openrouter import call_openrouter
+    from tests.utils.openai_compatible import call_openai_compatible
     from benchmarks.recorder import BenchmarkRecorder
     
     logger.info(f"Starting benchmark evaluation for {len(dataset)} questions...")
@@ -655,7 +657,13 @@ async def run_benchmark_evaluation(
                     structured_memory_context
                 )
                 
-                llm_response_model = call_openrouter(prompt_for_llm, model_name, len(choices))
+                # Choose the appropriate API based on model name or environment variables
+                if os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_BASE_URL"):
+                    # Use OpenAI compatible API if environment variables are set
+                    llm_response_model = call_openai_compatible(prompt_for_llm, model_name, len(choices))
+                else:
+                    # Fall back to original OpenRouter API
+                    llm_response_model = call_openrouter(prompt_for_llm, model_name, len(choices))
                 
                 model_choice_idx = llm_response_model.index
                 model_explanation = llm_response_model.reasoning
