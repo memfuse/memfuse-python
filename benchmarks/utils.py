@@ -476,25 +476,26 @@ async def load_dataset_to_memfuse(
                         continue
 
                     logger.info(f"Initializing session: '{session_id}' for Q{question_number}")
-                    # Use async context manager for memory instance as well
-                    async with await memfuse_client.init(
+                    # Create memory instance (no context manager needed for Memory instances)
+                    memory_instance = await memfuse_client.init(
                         user=user_name_for_test,
                         agent=agent_name_for_test,
                         session=session_id
-                    ) as memory_instance:
-                        # Convert messages to MemFuse format if needed
-                        memfuse_messages = convert_messages_for_memfuse(messages_for_session, dataset_type)
+                    )
+                    
+                    # Convert messages to MemFuse format if needed
+                    memfuse_messages = convert_messages_for_memfuse(messages_for_session, dataset_type)
 
-                        logger.info(f"Adding {len(memfuse_messages)} messages to session '{memory_instance.session}' (ID: {memory_instance.session_id}) for Q{question_number}")
-                        add_result = await memory_instance.add(memfuse_messages)
+                    logger.info(f"Adding {len(memfuse_messages)} messages to session '{memory_instance.session}' (ID: {memory_instance.session_id}) for Q{question_number}")
+                    add_result = await memory_instance.add(memfuse_messages)
 
-                        if add_result.get("status") == "success":
-                            logger.info(f"Successfully added messages for Q{question_number}: {add_result.get('data', {}).get('message_ids', [])}")
-                        else:
-                            error_msg = f"Failed to add messages to session '{session_id}' for Q{question_number}: {add_result}"
-                            logger.error(error_msg)
-                            errors.append(error_msg)
-                            continue
+                    if add_result.get("status") == "success":
+                        logger.info(f"Successfully added messages for Q{question_number}: {add_result.get('data', {}).get('message_ids', [])}")
+                    else:
+                        error_msg = f"Failed to add messages to session '{session_id}' for Q{question_number}: {add_result}"
+                        logger.error(error_msg)
+                        errors.append(error_msg)
+                        continue
 
                 successfully_loaded_count += 1
                 question_elapsed_time = time.time() - question_start_time
@@ -527,6 +528,9 @@ async def load_dataset_to_memfuse(
     logger.info(f"⏱️  Total data loading time: {sum(question_times):.2f} seconds")
     if errors:
         logger.warning(f"Encountered {len(errors)} errors during loading")
+        logger.warning("Failed question details:")
+        for error in errors:
+            logger.warning(f"  - {error}")
     logger.info("Data has been loaded into MemFuse and is ready for querying.")
     
     return results
@@ -579,8 +583,7 @@ async def run_benchmark_evaluation(
     logger.info(f"Starting benchmark evaluation for {len(dataset)} questions...")
     logger.info(f"Using model: {model_name}, TOP_K: {top_k}")
     
-    # Initialize MemFuse client and recorder
-    memfuse_client = AsyncMemFuse()
+    # Initialize recorder
     recorder = BenchmarkRecorder(dataset_name=dataset_name, top_k=top_k)
     
     # Tracking variables
@@ -592,7 +595,8 @@ async def run_benchmark_evaluation(
     # Track total elapsed time
     total_start_time = time.perf_counter()
     
-    try:
+    # Use async context manager for proper resource cleanup
+    async with AsyncMemFuse() as memfuse_client:
         for i, data_sample in enumerate(dataset):
             question_number = i + 1
             logger.info(f"--- Processing Question {question_number}/{len(dataset)} ---")
@@ -708,49 +712,37 @@ async def run_benchmark_evaluation(
                     "question_text": question_text, 
                     "status": f"FAILED - Exception: {e}"
                 })
-    
-    finally:
-        # Cleanup resources
-        logger.info("Closing AsyncMemFuse client and query session instances...")
-        for mem_instance in all_created_mem_instances:
-            try:
-                await mem_instance.close()
-            except Exception as e_close:
-                logger.error(f"Error closing memory instance: {e_close}")
         
-        if memfuse_client:
-            await memfuse_client.close()
-    
-    # Calculate total elapsed time
-    total_end_time = time.perf_counter()
-    total_elapsed_time = total_end_time - total_start_time
-    
-    # Save raw results
-    recorder.record_raw_results(results_summary)
-    
-    # Calculate and save summary
-    valid_results = [item for item in results_summary if 'is_correct' in item]
-    correct_count = sum(1 for item in valid_results if item.get('is_correct'))
-    accuracy = (correct_count / len(valid_results)) * 100 if len(valid_results) > 0 else 0
-    # Convert query times to milliseconds to match the expected format for summary
-    all_query_times_ms = [t * 1000 for t in all_query_times]
-    recorder.record_summary(all_query_times_ms, accuracy)
-    
-    # Display the overall summary with percentiles
-    if all_query_times:
-        p50_time = np.percentile(all_query_times, 50)
-        p90_time = np.percentile(all_query_times, 90)
-        p95_time = np.percentile(all_query_times, 95)
+        # Calculate total elapsed time
+        total_end_time = time.perf_counter()
+        total_elapsed_time = total_end_time - total_start_time
         
-        logger.info(f"P50 Query Time: {p50_time * 1000:.2f}ms, P90 Query Time: {p90_time * 1000:.2f}ms, P95 Query Time: {p95_time * 1000:.2f}ms")
+        # Save raw results
+        recorder.record_raw_results(results_summary)
         
-        # Note: Summary printing is now handled in the main scripts
-    
-    return BenchmarkResults(
-        question_results=results_summary,
-        query_times=all_query_times,
-        success_count=len(valid_results),
-        total_count=len(dataset),
-        accuracy=accuracy,
-        total_elapsed_time=total_elapsed_time
-    )
+        # Calculate and save summary
+        valid_results = [item for item in results_summary if 'is_correct' in item]
+        correct_count = sum(1 for item in valid_results if item.get('is_correct'))
+        accuracy = (correct_count / len(valid_results)) * 100 if len(valid_results) > 0 else 0
+        # Convert query times to milliseconds to match the expected format for summary
+        all_query_times_ms = [t * 1000 for t in all_query_times]
+        recorder.record_summary(all_query_times_ms, accuracy)
+        
+        # Display the overall summary with percentiles
+        if all_query_times:
+            p50_time = np.percentile(all_query_times, 50)
+            p90_time = np.percentile(all_query_times, 90)
+            p95_time = np.percentile(all_query_times, 95)
+            
+            logger.info(f"P50 Query Time: {p50_time * 1000:.2f}ms, P90 Query Time: {p90_time * 1000:.2f}ms, P95 Query Time: {p95_time * 1000:.2f}ms")
+            
+            # Note: Summary printing is now handled in the main scripts
+        
+        return BenchmarkResults(
+            question_results=results_summary,
+            query_times=all_query_times,
+            success_count=len(valid_results),
+            total_count=len(dataset),
+            accuracy=accuracy,
+            total_elapsed_time=total_elapsed_time
+        )
