@@ -56,7 +56,7 @@ async def test_async_memory_followup_includes_mars_reference():
     # Arrange – create AsyncMemFuse session & AsyncOpenAI client with memory
     # ---------------------------------------------------------------------
     try:
-        memfuse = AsyncMemFuse(base_url=memfuse_base_url)
+        memfuse = AsyncMemFuse(base_url=memfuse_base_url, timeout=30)
     except Exception as exc:
         pytest.skip(f"Cannot connect to MemFuse server at {memfuse_base_url}: {exc}")
 
@@ -174,7 +174,7 @@ async def test_async_memory_with_context_manager():
     # Test using async context manager (recommended approach)
     # ---------------------------------------------------------------------
     try:
-        async with AsyncMemFuse(base_url=memfuse_base_url) as memfuse:
+        async with AsyncMemFuse(base_url=memfuse_base_url, timeout=30) as memfuse:
             memory = await memfuse.init(user="e2e_async_context_test_user", session="context_test")
             
             client = AsyncOpenAI(

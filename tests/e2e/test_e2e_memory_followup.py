@@ -54,7 +54,7 @@ def test_memory_followup_includes_mars_reference():
     # Arrange – create MemFuse session & OpenAI client with memory attached
     # ---------------------------------------------------------------------
     try:
-        memfuse = MemFuse(base_url=memfuse_base_url)
+        memfuse = MemFuse(base_url=memfuse_base_url, timeout=30)
     except Exception as exc:
         pytest.skip(f"Cannot connect to MemFuse server at {memfuse_base_url}: {exc}")
 

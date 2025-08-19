@@ -26,7 +26,6 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from benchmarks.utils import (
-    create_standard_parser, 
     args_to_config, 
     load_benchmark_dataset,
     run_benchmark_evaluation
@@ -49,14 +48,14 @@ DATASET_CONFIGS = {
 }
 
 
-def print_benchmark_summary(results, dataset_name):
-    """Print detailed benchmark summary with histogram visualization."""
+def print_evaluation_summary(benchmark_results, dataset_name):
+    """Print evaluation summary with benchmark results and histogram visualization."""
     
     # Individual results for small datasets (show first)
-    if results.total_count <= 10:
+    if benchmark_results.total_count <= 10:
         print(f"\n📋 Individual Results:")
         print("-"*60)
-        for i, result in enumerate(results.question_results):
+        for i, result in enumerate(benchmark_results.question_results):
             if 'is_correct' in result:
                 status = "✅ CORRECT" if result['is_correct'] else "❌ INCORRECT"
                 print(f"Q{i+1}: {result.get('question_id', 'N/A')} - {status}")
@@ -67,24 +66,17 @@ def print_benchmark_summary(results, dataset_name):
                 print(f"Q{i+1}: {result.get('question_id', 'N/A')} - ⚠️ {result.get('status', 'UNKNOWN')}")
     
     print("\n" + "="*80)
-    print("BENCHMARK RESULTS SUMMARY")
+    print("EVALUATION SUMMARY")
     print("="*80)
     
-    # Basic results
-    print(f"Dataset: {dataset_name.upper()}")
-    print(f"Questions processed: {results.total_count}")
-    print(f"Successful evaluations: {results.success_count}")
-    print(f"📊 Accuracy: {results.accuracy:.1f}%")
-    print(f"⏱️  Total time: {results.total_elapsed_time:.2f}s")
-    
-    if results.success_count == results.total_count:
-        print("✅ All questions evaluated successfully!")
-    else:
-        print(f"⚠️  {results.total_count - results.success_count} questions failed evaluation")
+    # Benchmark results summary
+    print(f"✅ Evaluation: {benchmark_results.success_count}/{benchmark_results.total_count} questions evaluated")
+    print(f"📊 Final Accuracy: {benchmark_results.accuracy:.1f}%")
+    print(f"⏱️  Total Time: {benchmark_results.total_elapsed_time:.2f}s")
     
     # Retrieval time statistics
-    if results.query_times:
-        query_times_ms = [t * 1000 for t in results.query_times]
+    if benchmark_results.query_times:
+        query_times_ms = [t * 1000 for t in benchmark_results.query_times]
         import numpy as np
         
         print(f"\n📈 Retrieval Time Statistics:")
@@ -108,13 +100,13 @@ def print_benchmark_summary(results, dataset_name):
 
 
 async def main():
-    """Query MemFuse memory with benchmark questions and evaluate results."""
+    """Run benchmark evaluation assuming data is already loaded in MemFuse."""
     # Create parser with dataset selection
-    parser = argparse.ArgumentParser(description="Query MemFuse with benchmark questions and evaluate results.")
+    parser = argparse.ArgumentParser(description="Run benchmark evaluation assuming data is already loaded in MemFuse.")
     parser.add_argument(
         "dataset", 
         choices=["msc", "lme", "locomo"],
-        help="Dataset to benchmark (msc, lme, or locomo)"
+        help="Dataset to evaluate (msc, lme, or locomo)"
     )
     parser.add_argument("--num-questions", type=int, default=10, help="Number of questions to process")
     parser.add_argument("--load-all", action="store_true", help="Process entire dataset (overrides --num-questions)")
@@ -137,8 +129,9 @@ async def main():
     model_name = args.model if args.model else config_settings["model_name"]
     
     # Log dataset info
-    logger.info(f"Running {args.dataset.upper()} benchmark")
+    logger.info(f"Running {args.dataset.upper()} evaluation (data loading bypassed)")
     logger.info(f"TOP_K: {top_k}, Model: {model_name}")
+    logger.info("⚠️  ASSUMPTION: Data is already loaded in MemFuse memory")
     
     # Log question type filtering info for LME
     if args.dataset == "lme":
@@ -150,14 +143,15 @@ async def main():
     # Convert args to config
     config = args_to_config(args, args.dataset)
     
-    # Load dataset using centralized function
+    # Load dataset metadata (questions, choices, answers) but skip MemFuse loading
     dataset = load_benchmark_dataset(config, logger)
     if not dataset:
-        logger.error("Failed to load dataset. Exiting.")
+        logger.error("Failed to load dataset metadata. Exiting.")
         return
     
+    logger.info(f"========== {args.dataset.upper()} EVALUATION PHASE ==========")
     # Run benchmark evaluation using centralized function
-    results = await run_benchmark_evaluation(
+    benchmark_results = await run_benchmark_evaluation(
         dataset=dataset,
         dataset_name=args.dataset,
         top_k=top_k,
@@ -165,8 +159,8 @@ async def main():
         logger=logger
     )
     
-    # Print detailed benchmark summary with visualization
-    print_benchmark_summary(results, args.dataset)
+    # Print evaluation summary with detailed benchmark results and visualization
+    print_evaluation_summary(benchmark_results, args.dataset)
 
 
 if __name__ == "__main__":

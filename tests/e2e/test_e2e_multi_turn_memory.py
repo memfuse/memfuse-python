@@ -58,8 +58,8 @@ def test_multi_turn_conversation_memory():
     openai_api_key = os.getenv("OPENAI_API_KEY")
     
     try:
-        # Initialize MemFuse client
-        memfuse = MemFuse(base_url=memfuse_base_url)
+        # Initialize MemFuse client with longer timeout for multi-turn operations
+        memfuse = MemFuse(base_url=memfuse_base_url, timeout=30)
         
         # Create a unique session for this test
         test_session = f"test_multi_turn_{int(time.time())}"

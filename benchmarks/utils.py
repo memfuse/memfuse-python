@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import random
 import time
 import uuid
@@ -381,113 +382,156 @@ def convert_messages_for_memfuse(messages: List[Dict[str, Any]], dataset_type: s
         # LoCoMo messages already have speaker names embedded in content (e.g., "[CAROLINE]: text")
         memfuse_messages = []
         for msg in messages:
+            content = msg.get("content", "")
+            role = msg.get("role", "user")
+            
+            # Skip messages with empty content or role
+            if not content or not content.strip() or not role or not role.strip():
+                continue
+                
             memfuse_msg = {
-                "role": msg.get("role", "user"),
-                "content": msg.get("content", "")
+                "role": role,
+                "content": content
             }
             memfuse_messages.append(memfuse_msg)
         return memfuse_messages
     else:
-        # MSC and LME use standard format already
-        return messages
+        # MSC and LME need to filter out extra fields and empty messages to match MemFuse format
+        memfuse_messages = []
+        for msg in messages:
+            content = msg.get("content", "")
+            role = msg.get("role", "user")
+            
+            # Skip messages with empty content or role
+            if not content or not content.strip() or not role or not role.strip():
+                continue
+                
+            memfuse_msg = {
+                "role": role,
+                "content": content
+            }
+            memfuse_messages.append(memfuse_msg)
+        return memfuse_messages
 
 
 async def load_dataset_to_memfuse(
-        dataset: List[Dict[str, Any]], 
+        dataset: List[Dict[str, Any]],
         dataset_type: str,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[logging.Logger] = None,
+        start_id: int = 1,
+        end_id: Optional[int] = None
     ) -> LoadingResults:
     """Load dataset into MemFuse memory.
-    
+
     Args:
         dataset: List of questions with haystack sessions
         dataset_type: Type of dataset (msc, lme, locomo)
         logger: Logger instance
-    
+        start_id: Starting question ID (1-based) for loading
+        end_id: Ending question ID (1-based, inclusive) for loading
+
     Returns:
         LoadingResults with success statistics
     """
     if logger is None:
         logger = logging.getLogger(__name__)
-    
+
     from memfuse import AsyncMemFuse
-    memfuse_client = AsyncMemFuse()
     successfully_loaded_count = 0
     question_times = []
     errors = []
-    
-    logger.info(f"Starting to load {len(dataset)} questions into MemFuse...")
-    
-    for i, data_sample in enumerate(dataset):
-        question_start_time = time.time()
-        question_number = i + 1
-        logger.info(f"--- Loading Question {question_number}/{len(dataset)} ---")
-        
-        question_id = data_sample.get('question_id', f"q_{uuid.uuid4().hex[:8]}")
-        question_text = data_sample.get('question')
-        haystack_session_ids = data_sample.get('haystack_session_ids', [])
-        haystack_sessions_data = data_sample.get('haystack_sessions', [])
-        
-        if not all([question_text, haystack_session_ids, haystack_sessions_data]):
-            error_msg = f"Question {question_number} (ID: {question_id}): Missing required fields. Skipping."
-            logger.error(error_msg)
-            errors.append(error_msg)
-            continue
-        
-        logger.info(f"Question {question_number} (ID: {question_id}): {question_text}")
-        
-        user_name_for_test = question_id
-        agent_name_for_test = "agent_default"
-        
-        try:
-            logger.info(f"Adding {len(haystack_sessions_data)} sessions to MemFuse for user '{user_name_for_test}' (Question {question_number})...")
-            
-            for _, (session_id, messages_for_session) in enumerate(zip(haystack_session_ids, haystack_sessions_data)):
-                if not messages_for_session:
-                    logger.warning(f"Skipping session '{session_id}' for Q{question_number} as it has no messages.")
-                    continue
-                
-                logger.info(f"Initializing session: '{session_id}' for Q{question_number}")
-                memory_instance = await memfuse_client.init(
-                    user=user_name_for_test, 
-                    agent=agent_name_for_test, 
-                    session=session_id 
-                )
-                
-                # Convert messages to MemFuse format if needed
-                memfuse_messages = convert_messages_for_memfuse(messages_for_session, dataset_type)
-                
-                logger.info(f"Adding {len(memfuse_messages)} messages to session '{memory_instance.session}' (ID: {memory_instance.session_id}) for Q{question_number}")
-                add_result = await memory_instance.add(memfuse_messages)
-                
-                if add_result.get("status") == "success":
-                    logger.info(f"Successfully added messages for Q{question_number}: {add_result.get('data', {}).get('message_ids', [])}")
-                else:
-                    error_msg = f"Failed to add messages to session '{session_id}' for Q{question_number}: {add_result}"
-                    logger.error(error_msg)
-                    errors.append(error_msg)
-                    continue
-                
-                # Close this memory instance to free resources
-                await memory_instance.close()
-            
-            successfully_loaded_count += 1
-            question_elapsed_time = time.time() - question_start_time
-            question_times.append(question_elapsed_time)
-            logger.info(f"⏱️  Question {question_number} loaded in {question_elapsed_time:.2f} seconds")
-            logger.info(f"--- Successfully loaded Question {question_number}/{len(dataset)} ---")
-            
-        except ConnectionError as e:
-            error_msg = f"Connection error with MemFuse server for Q{question_number} (ID: {question_id}): {e}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-        except Exception as e:
-            error_msg = f"Unexpected error for Q{question_number} (ID: {question_id}): {e}"
-            logger.error(error_msg, exc_info=True)
-            errors.append(error_msg)
-    
-    # Close the main MemFuse client
-    await memfuse_client.close()
+
+    # Use async context manager to ensure proper resource cleanup
+    async with AsyncMemFuse() as memfuse_client:
+        # Calculate actual loading range
+        if end_id is not None:
+            if start_id == 1 and end_id == len(dataset):
+                logger.info(f"Starting to load all {len(dataset)} questions into MemFuse...")
+            else:
+                load_count = end_id - start_id + 1
+                logger.info(f"Starting to load {load_count} questions into MemFuse "
+                            f"(questions {start_id} to {end_id})...")
+        elif start_id > 1:
+            skipped_count = start_id - 1
+            remaining_count = len(dataset) - skipped_count
+            logger.info(f"Starting to load {remaining_count} questions into MemFuse "
+                        f"(skipping first {skipped_count})...")
+        else:
+            logger.info(f"Starting to load {len(dataset)} questions into MemFuse...")
+
+        for i, data_sample in enumerate(dataset, start=1):
+            # Skip questions before start_id
+            if i < start_id:
+                continue
+
+            # Stop if we've reached end_id
+            if end_id is not None and i > end_id:
+                break
+
+            question_start_time = time.time()
+            question_number = i
+            logger.info(f"--- Loading Question {question_number}/{len(dataset)} ---")
+
+            question_id = data_sample.get('question_id', f"q_{uuid.uuid4().hex[:8]}")
+            question_text = data_sample.get('question')
+            haystack_session_ids = data_sample.get('haystack_session_ids', [])
+            haystack_sessions_data = data_sample.get('haystack_sessions', [])
+
+            if not all([question_text, haystack_session_ids, haystack_sessions_data]):
+                error_msg = f"Question {question_number} (ID: {question_id}): Missing required fields. Skipping."
+                logger.error(error_msg)
+                errors.append(error_msg)
+                continue
+
+            logger.info(f"Question {question_number} (ID: {question_id}): {question_text}")
+
+            user_name_for_test = question_id
+            agent_name_for_test = "agent_default"
+
+            try:
+                logger.info(f"Adding {len(haystack_sessions_data)} sessions to MemFuse for user '{user_name_for_test}' (Question {question_number})...")
+
+                for _, (session_id, messages_for_session) in enumerate(zip(haystack_session_ids, haystack_sessions_data)):
+                    if not messages_for_session:
+                        logger.warning(f"Skipping session '{session_id}' for Q{question_number} as it has no messages.")
+                        continue
+
+                    logger.info(f"Initializing session: '{session_id}' for Q{question_number}")
+                    # Create memory instance (no context manager needed for Memory instances)
+                    memory_instance = await memfuse_client.init(
+                        user=user_name_for_test,
+                        agent=agent_name_for_test,
+                        session=session_id
+                    )
+                    
+                    # Convert messages to MemFuse format if needed
+                    memfuse_messages = convert_messages_for_memfuse(messages_for_session, dataset_type)
+
+                    logger.info(f"Adding {len(memfuse_messages)} messages to session '{memory_instance.session}' (ID: {memory_instance.session_id}) for Q{question_number}")
+                    add_result = await memory_instance.add(memfuse_messages)
+
+                    if add_result.get("status") == "success":
+                        logger.info(f"Successfully added messages for Q{question_number}: {add_result.get('data', {}).get('message_ids', [])}")
+                    else:
+                        error_msg = f"Failed to add messages to session '{session_id}' for Q{question_number}: {add_result}"
+                        logger.error(error_msg)
+                        errors.append(error_msg)
+                        continue
+
+                successfully_loaded_count += 1
+                question_elapsed_time = time.time() - question_start_time
+                question_times.append(question_elapsed_time)
+                logger.info(f"⏱️  Question {question_number} loaded in {question_elapsed_time:.2f} seconds")
+                logger.info(f"--- Successfully loaded Question {question_number}/{len(dataset)} ---")
+
+            except ConnectionError as e:
+                error_msg = f"Connection error with MemFuse server for Q{question_number} (ID: {question_id}): {e}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+            except Exception as e:
+                error_msg = f"Unexpected error for Q{question_number} (ID: {question_id}): {e}"
+                logger.error(error_msg, exc_info=True)
+                errors.append(error_msg)
     
     results = LoadingResults(
         success_count=successfully_loaded_count,
@@ -505,6 +549,9 @@ async def load_dataset_to_memfuse(
     logger.info(f"⏱️  Total data loading time: {sum(question_times):.2f} seconds")
     if errors:
         logger.warning(f"Encountered {len(errors)} errors during loading")
+        logger.warning("Failed question details:")
+        for error in errors:
+            logger.warning(f"  - {error}")
     logger.info("Data has been loaded into MemFuse and is ready for querying.")
     
     return results
@@ -551,13 +598,13 @@ async def run_benchmark_evaluation(
     from memfuse import AsyncMemFuse
     from tests.utils.prompts import create_prompt
     from tests.utils.openrouter import call_openrouter
+    from tests.utils.openai_compatible import call_openai_compatible
     from benchmarks.recorder import BenchmarkRecorder
     
     logger.info(f"Starting benchmark evaluation for {len(dataset)} questions...")
     logger.info(f"Using model: {model_name}, TOP_K: {top_k}")
     
-    # Initialize MemFuse client and recorder
-    memfuse_client = AsyncMemFuse()
+    # Initialize recorder
     recorder = BenchmarkRecorder(dataset_name=dataset_name, top_k=top_k)
     
     # Tracking variables
@@ -569,7 +616,8 @@ async def run_benchmark_evaluation(
     # Track total elapsed time
     total_start_time = time.perf_counter()
     
-    try:
+    # Use async context manager for proper resource cleanup
+    async with AsyncMemFuse() as memfuse_client:
         for i, data_sample in enumerate(dataset):
             question_number = i + 1
             logger.info(f"--- Processing Question {question_number}/{len(dataset)} ---")
@@ -634,7 +682,13 @@ async def run_benchmark_evaluation(
                     structured_memory_context
                 )
                 
-                llm_response_model = call_openrouter(prompt_for_llm, model_name, len(choices))
+                # Choose the appropriate API based on model name or environment variables
+                if os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_BASE_URL"):
+                    # Use OpenAI compatible API if environment variables are set
+                    llm_response_model = call_openai_compatible(prompt_for_llm, model_name, len(choices))
+                else:
+                    # Fall back to original OpenRouter API
+                    llm_response_model = call_openrouter(prompt_for_llm, model_name, len(choices))
                 
                 model_choice_idx = llm_response_model.index
                 model_explanation = llm_response_model.reasoning
@@ -679,49 +733,37 @@ async def run_benchmark_evaluation(
                     "question_text": question_text, 
                     "status": f"FAILED - Exception: {e}"
                 })
-    
-    finally:
-        # Cleanup resources
-        logger.info("Closing AsyncMemFuse client and query session instances...")
-        for mem_instance in all_created_mem_instances:
-            try:
-                await mem_instance.close()
-            except Exception as e_close:
-                logger.error(f"Error closing memory instance: {e_close}")
         
-        if memfuse_client:
-            await memfuse_client.close()
-    
-    # Calculate total elapsed time
-    total_end_time = time.perf_counter()
-    total_elapsed_time = total_end_time - total_start_time
-    
-    # Save raw results
-    recorder.record_raw_results(results_summary)
-    
-    # Calculate and save summary
-    valid_results = [item for item in results_summary if 'is_correct' in item]
-    correct_count = sum(1 for item in valid_results if item.get('is_correct'))
-    accuracy = (correct_count / len(valid_results)) * 100 if len(valid_results) > 0 else 0
-    # Convert query times to milliseconds to match the expected format for summary
-    all_query_times_ms = [t * 1000 for t in all_query_times]
-    recorder.record_summary(all_query_times_ms, accuracy)
-    
-    # Display the overall summary with percentiles
-    if all_query_times:
-        p50_time = np.percentile(all_query_times, 50)
-        p90_time = np.percentile(all_query_times, 90)
-        p95_time = np.percentile(all_query_times, 95)
+        # Calculate total elapsed time
+        total_end_time = time.perf_counter()
+        total_elapsed_time = total_end_time - total_start_time
         
-        logger.info(f"P50 Query Time: {p50_time * 1000:.2f}ms, P90 Query Time: {p90_time * 1000:.2f}ms, P95 Query Time: {p95_time * 1000:.2f}ms")
+        # Save raw results
+        recorder.record_raw_results(results_summary)
         
-        # Note: Summary printing is now handled in the main scripts
-    
-    return BenchmarkResults(
-        question_results=results_summary,
-        query_times=all_query_times,
-        success_count=len(valid_results),
-        total_count=len(dataset),
-        accuracy=accuracy,
-        total_elapsed_time=total_elapsed_time
-    )
+        # Calculate and save summary
+        valid_results = [item for item in results_summary if 'is_correct' in item]
+        correct_count = sum(1 for item in valid_results if item.get('is_correct'))
+        accuracy = (correct_count / len(valid_results)) * 100 if len(valid_results) > 0 else 0
+        # Convert query times to milliseconds to match the expected format for summary
+        all_query_times_ms = [t * 1000 for t in all_query_times]
+        recorder.record_summary(all_query_times_ms, accuracy)
+        
+        # Display the overall summary with percentiles
+        if all_query_times:
+            p50_time = np.percentile(all_query_times, 50)
+            p90_time = np.percentile(all_query_times, 90)
+            p95_time = np.percentile(all_query_times, 95)
+            
+            logger.info(f"P50 Query Time: {p50_time * 1000:.2f}ms, P90 Query Time: {p90_time * 1000:.2f}ms, P95 Query Time: {p95_time * 1000:.2f}ms")
+            
+            # Note: Summary printing is now handled in the main scripts
+        
+        return BenchmarkResults(
+            question_results=results_summary,
+            query_times=all_query_times,
+            success_count=len(valid_results),
+            total_count=len(dataset),
+            accuracy=accuracy,
+            total_elapsed_time=total_elapsed_time
+        )

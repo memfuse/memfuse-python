@@ -23,15 +23,17 @@ class AsyncMemFuse:
     # Class variable to track all instances
     _instances = set()
 
-    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None):
+    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None, timeout: int = 10):
         """Initialize the MemFuse client.
 
         Args:
             base_url: URL of the MemFuse server API
             api_key: API key for authentication (optional for local usage)
+            timeout: Request timeout in seconds (default: 10)
         """
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or os.environ.get("MEMFUSE_API_KEY")
+        self.timeout = timeout
         self.session = None
 
         # Initialize ASYNC API clients using the classes from .api
@@ -69,7 +71,7 @@ class AsyncMemFuse:
         await self._ensure_session()
         try:
             url = f"{self.base_url}/api/v1/health"
-            async with self.session.get(url, timeout=10) as response:
+            async with self.session.get(url, timeout=self.timeout) as response:
                 if response.status == 200:
                     return True
                 return False
@@ -108,7 +110,7 @@ class AsyncMemFuse:
 
             url = f"{self.base_url}{endpoint}"
 
-            async with getattr(self.session, method.lower())(url, json=data) as response:
+            async with getattr(self.session, method.lower())(url, json=data, timeout=self.timeout) as response:
                 response_data = await response.json()
                 if response.status >= 400:
                     error_message = response_data.get("message", "Unknown error")
@@ -257,15 +259,17 @@ class AsyncMemFuse:
 class MemFuse:
     """Synchronous MemFuse client for communicating with the MemFuse server."""
 
-    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None):
+    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None, timeout: int = 10):
         """Initialize the synchronous MemFuse client.
 
         Args:
             base_url: URL of the MemFuse server API
             api_key: API key for authentication (optional for local usage)
+            timeout: Request timeout in seconds (default: 10)
         """
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or os.environ.get("MEMFUSE_API_KEY")
+        self.timeout = timeout
         self.sync_session = None  # requests session for sync requests
 
         # Initialize API clients using the classes from .api
@@ -300,7 +304,7 @@ class MemFuse:
         self._ensure_sync_session()
         try:
             url = f"{self.base_url}/api/v1/health"
-            response = self.sync_session.get(url, timeout=10)
+            response = self.sync_session.get(url, timeout=self.timeout)
             return response.status_code == 200
         except Exception:
             return False
@@ -336,7 +340,7 @@ class MemFuse:
 
             url = f"{self.base_url}{endpoint}"
 
-            response = getattr(self.sync_session, method.lower())(url, json=data, timeout=10)
+            response = getattr(self.sync_session, method.lower())(url, json=data, timeout=self.timeout)
             response_data = response.json()
             if response.status_code >= 400:
                 error_message = response_data.get("message", "Unknown error")
