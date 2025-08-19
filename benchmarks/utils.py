@@ -382,15 +382,36 @@ def convert_messages_for_memfuse(messages: List[Dict[str, Any]], dataset_type: s
         # LoCoMo messages already have speaker names embedded in content (e.g., "[CAROLINE]: text")
         memfuse_messages = []
         for msg in messages:
+            content = msg.get("content", "")
+            role = msg.get("role", "user")
+            
+            # Skip messages with empty content or role
+            if not content or not content.strip() or not role or not role.strip():
+                continue
+                
             memfuse_msg = {
-                "role": msg.get("role", "user"),
-                "content": msg.get("content", "")
+                "role": role,
+                "content": content
             }
             memfuse_messages.append(memfuse_msg)
         return memfuse_messages
     else:
-        # MSC and LME use standard format already
-        return messages
+        # MSC and LME need to filter out extra fields and empty messages to match MemFuse format
+        memfuse_messages = []
+        for msg in messages:
+            content = msg.get("content", "")
+            role = msg.get("role", "user")
+            
+            # Skip messages with empty content or role
+            if not content or not content.strip() or not role or not role.strip():
+                continue
+                
+            memfuse_msg = {
+                "role": role,
+                "content": content
+            }
+            memfuse_messages.append(memfuse_msg)
+        return memfuse_messages
 
 
 async def load_dataset_to_memfuse(

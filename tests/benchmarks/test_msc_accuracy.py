@@ -54,8 +54,11 @@ logging.getLogger("litellm").setLevel(logging.ERROR)
 
 # Suppress Pydantic serialization warnings from LiteLLM
 warnings.filterwarnings("ignore", message=".*Pydantic serializer warnings.*")
+warnings.filterwarnings("ignore", message=".*Expected.*fields but got.*")
+warnings.filterwarnings("ignore", message=".*PydanticSerializationUnexpectedValue.*")
 warnings.filterwarnings("ignore", category=UserWarning, module=".*pydantic.*")
 warnings.filterwarnings("ignore", category=UserWarning, module=".*litellm.*")
+warnings.filterwarnings("ignore", category=UserWarning, module=".*litellm_core_utils.*")
 
 # Test configuration
 DEFAULT_NUM_QUESTIONS = 20
@@ -103,7 +106,6 @@ async def load_msc_to_memfuse(dataset, logger):
                 else:
                     logger.error(f"Failed to add messages to session '{session_id}' for Q{question_number}: {add_result}")
                     continue
-                await memory_instance.close()
             successfully_loaded_count += 1
             logger.info(f"--- Successfully loaded Question {question_number}/{len(dataset)} ---")
         except ConnectionError as e:
@@ -120,7 +122,6 @@ async def run_msc_benchmark_with_results(dataset, logger):
     """Query MemFuse memory with MSC questions and return structured results."""
     results = MSCBenchmarkResults()
     memfuse_client = AsyncMemFuse()
-    all_created_mem_instances = []
     total_start_time = time.perf_counter()
     for i, data_sample in enumerate(dataset):
         question_number = i + 1
@@ -143,7 +144,6 @@ async def run_msc_benchmark_with_results(dataset, logger):
                 user=user_name_for_test,
                 agent=agent_name_for_test,
             )
-            all_created_mem_instances.append(query_memory_instance)
             start_time = time.perf_counter()
             memory_response = await query_memory_instance.query(query=question_text, top_k=3)
             end_time = time.perf_counter()
@@ -207,12 +207,7 @@ async def run_msc_benchmark_with_results(dataset, logger):
     except Exception as e:
         logger.error(f"A critical unexpected error occurred: {e}", exc_info=True)
     finally:
-        logger.info("Closing AsyncMemFuse client and query session instances...")
-        for mem_instance in all_created_mem_instances:
-            try:
-                await mem_instance.close()
-            except Exception as e_close:
-                logger.error(f"Error closing memory instance for session {mem_instance.session if mem_instance else 'N/A'}: {e_close}")
+        logger.info("Closing AsyncMemFuse client...")
         if memfuse_client:
             await memfuse_client.close()
         total_end_time = time.perf_counter()
