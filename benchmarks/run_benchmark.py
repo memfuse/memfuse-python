@@ -36,21 +36,45 @@ from benchmarks.utils import (
 DATASET_CONFIGS = {
     "msc": {
         "top_k": 3,
-        "model_name": os.getenv("OPENAI_COMPATIBLE_MODEL", "openrouter/openai/gpt-4o-mini")
+        "model_name": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     },
     "lme": {
         "top_k": 20,
-        "model_name": os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-4o-mini")
+        "model_name": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     },
     "locomo": {
         "top_k": 5,
-        "model_name": os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-4o-mini")
+        "model_name": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     }
 }
 
 
 def print_benchmark_summary(results, dataset_name):
     """Print detailed benchmark summary with histogram visualization."""
+    
+    # Collect incorrect question IDs
+    incorrect_question_ids = []
+    for result in results.question_results:
+        if 'is_correct' in result and not result['is_correct']:
+            question_id = result.get('question_id', 'N/A')
+            if question_id != 'N/A':
+                incorrect_question_ids.append(question_id)
+    
+    # Write incorrect question IDs to file if any exist
+    if incorrect_question_ids:
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        results_dir = os.path.join(os.path.dirname(__file__), 'results')
+        filename = f"incorrect_questions_{dataset_name}_{timestamp}.txt"
+        filepath = os.path.join(results_dir, filename)
+        
+        try:
+            with open(filepath, 'w') as f:
+                for question_id in incorrect_question_ids:
+                    f.write(f"{question_id}\n")
+            logger.info(f"Incorrect question IDs saved to: {filepath}")
+        except Exception as e:
+            logger.error(f"Failed to write incorrect question IDs to file: {e}")
     
     # Individual results for small datasets (show first)
     if results.total_count <= 10:
@@ -76,11 +100,19 @@ def print_benchmark_summary(results, dataset_name):
     print(f"Successful evaluations: {results.success_count}")
     print(f"📊 Accuracy: {results.accuracy:.1f}%")
     print(f"⏱️  Total time: {results.total_elapsed_time:.2f}s")
+    print(f"🔄 Total retries: {results.total_retries}")
+    print(f"💥 Final failures after all retries: {results.final_failures}")
     
     if results.success_count == results.total_count:
         print("✅ All questions evaluated successfully!")
     else:
         print(f"⚠️  {results.total_count - results.success_count} questions failed evaluation")
+    
+    # Show incorrect question IDs if any
+    if incorrect_question_ids:
+        print(f"\n❌ Incorrect Question IDs ({len(incorrect_question_ids)} total):")
+        print(", ".join(incorrect_question_ids))
+        print(f"💾 Incorrect question IDs also saved to benchmarks/results/")
     
     # Retrieval time statistics
     if results.query_times:

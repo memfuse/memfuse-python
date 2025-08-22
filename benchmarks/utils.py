@@ -258,6 +258,162 @@ def apply_question_type_filter(
     return filtered_dataset
 
 
+async def _call_memfuse_gemini(
+        prompt_system: str,
+        prompt_user: str,
+        model_name: str,
+        memory_instance,
+        choices_length: int,
+        max_retries: int = 20,
+        logger: Optional[logging.Logger] = None
+    ):
+    """Call MemFuse Gemini client and parse response."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    from memfuse.llm import AsyncGeminiClient
+    from tests.utils.data_models import MultipleChoiceResponse
+    import json
+    import re
+    
+    # Initialize MemFuse AsyncGeminiClient with memory
+    from google.genai import types
+    
+    # Configure HTTP options for proxy if base URL is provided
+    http_options = None
+    if os.getenv("GEMINI_BASE_URL"):
+        http_options = types.HttpOptions(
+            base_url=os.getenv("GEMINI_BASE_URL")
+        )
+    
+    client = AsyncGeminiClient(
+        memory=memory_instance,
+        api_key=os.getenv("GEMINI_API_KEY"),
+        http_options=http_options
+    )
+    
+    # Retry logic with exponential backoff
+    for attempt in range(max_retries + 1):
+        try:
+            # Combine system and user prompts for Gemini
+            combined_prompt = f"System: {prompt_system}\n\nUser: {prompt_user}\n\nPlease respond in JSON format with an 'index' field (0-based choice index) and a 'reasoning' field."
+            
+            if attempt > 0:
+                delay = 2 ** (attempt - 1)
+                logger.info(f"Retrying MemFuse Gemini call (attempt {attempt + 1}/{max_retries + 1}) after {delay}s delay...")
+                await asyncio.sleep(delay)
+            
+            # Call AsyncGeminiClient with memory integration
+            response = await client.models.generate_content_async(
+                model=model_name,
+                contents=combined_prompt
+            )
+            
+            # Extract response content from Gemini's response structure
+            response_content = ""
+            if response and response.candidates:
+                if response.candidates[0].content and response.candidates[0].content.parts:
+                    for part in response.candidates[0].content.parts:
+                        if part.text:
+                            response_content += part.text
+            
+            if not response_content:
+                if attempt < max_retries:
+                    logger.warning(f"Received empty response from MemFuse Gemini client (attempt {attempt + 1}), retrying...")
+                    continue
+                else:
+                    logger.error("Received empty response from MemFuse Gemini client after all retries")
+                    return MultipleChoiceResponse(
+                        index=0,
+                        reasoning="Empty response from API after all retries",
+                        description="Error: Empty response",
+                        retry_count=attempt,
+                        failed_after_retries=True
+                    )
+            
+            logger.debug(f"MemFuse Gemini response: {response_content}")
+            
+            # Parse JSON response
+            try:
+                # Extract JSON from markdown code blocks if present
+                json_pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
+                match = re.search(json_pattern, response_content, re.DOTALL | re.IGNORECASE)
+                if match:
+                    cleaned_content = match.group(1).strip()
+                else:
+                    cleaned_content = response_content.strip()
+                
+                # Ensure it looks like JSON
+                if not (cleaned_content.startswith('{') and cleaned_content.endswith('}')):
+                    raise json.JSONDecodeError("Not valid JSON format", cleaned_content, 0)
+                
+                parsed_json = json.loads(cleaned_content)
+                
+                # Extract index and reasoning from various possible formats
+                index = 0
+                for key in ["index", "choice", "answer", "selected"]:
+                    if key in parsed_json:
+                        try:
+                            index = int(parsed_json[key])
+                            break
+                        except (ValueError, TypeError):
+                            continue
+                
+                reasoning = parsed_json.get("reasoning",
+                           parsed_json.get("explanation", 
+                           parsed_json.get("rationale", "No explanation provided")))
+                
+                # Validate choice index
+                if not (0 <= index < choices_length):
+                    logger.warning(f"Model returned choice index {index} which is out of range (0-{choices_length-1}). Defaulting to 0.")
+                    index = 0
+                
+                return MultipleChoiceResponse(
+                    index=index,
+                    reasoning=str(reasoning),
+                    description="Response from MemFuse Gemini client",
+                    retry_count=attempt,
+                    failed_after_retries=False
+                )
+                
+            except json.JSONDecodeError as e:
+                logger.debug(f"Failed to parse JSON response: {e}. Attempting text parsing.")
+                # Fallback to text parsing
+                numbers = re.findall(r'\b\d+\b', response_content)
+                index = 0
+                if numbers:
+                    try:
+                        index = int(numbers[0])
+                        if not (0 <= index < choices_length):
+                            index = 0
+                    except ValueError:
+                        index = 0
+                
+                return MultipleChoiceResponse(
+                    index=index,
+                    reasoning=response_content[:200] + "..." if len(response_content) > 200 else response_content,
+                    description="Fallback text parsing from MemFuse Gemini",
+                    retry_count=attempt,
+                    failed_after_retries=False
+                )
+        
+        except Exception as e:
+            if attempt < max_retries:
+                delay = 2 ** attempt
+                logger.warning(f"Error calling MemFuse Gemini client (attempt {attempt + 1}): {e}, retrying in {delay}s...")
+                await asyncio.sleep(delay)
+                continue
+            else:
+                logger.error(f"Error calling MemFuse Gemini client after all retries: {e}")
+                return MultipleChoiceResponse(
+                    index=0,
+                    reasoning=f"Error calling MemFuse Gemini client after {max_retries + 1} attempts: {str(e)}",
+                    description="Error response",
+                    retry_count=max_retries,
+                    failed_after_retries=True
+                )
+
+
 def load_benchmark_dataset(
         config: DataLoadingConfig,
         logger: Optional[logging.Logger] = None
@@ -566,6 +722,8 @@ class BenchmarkResults:
     total_count: int
     accuracy: float
     total_elapsed_time: float
+    total_retries: int = 0
+    final_failures: int = 0
     
     @property
     def success_rate(self) -> float:
@@ -576,7 +734,7 @@ async def run_benchmark_evaluation(
         dataset: List[Dict[str, Any]],
         dataset_name: str, 
         top_k: int = 3,
-        model_name: str = "openai/gpt-4o-mini",
+        model_name: str = "deepseek-ai/DeepSeek-V3.1",
         logger: Optional[logging.Logger] = None
     ) -> BenchmarkResults:
     """Run benchmark evaluation on a dataset.
@@ -597,8 +755,6 @@ async def run_benchmark_evaluation(
     # Import here to avoid circular imports
     from memfuse import AsyncMemFuse
     from tests.utils.prompts import create_prompt
-    from tests.utils.openrouter import call_openrouter
-    from tests.utils.openai_compatible import call_openai_compatible
     from benchmarks.recorder import BenchmarkRecorder
     
     logger.info(f"Starting benchmark evaluation for {len(dataset)} questions...")
@@ -612,6 +768,8 @@ async def run_benchmark_evaluation(
     all_query_times = []
     correct_answers_count = 0
     results_summary = []
+    total_retries = 0
+    final_failures = 0
     
     # Track total elapsed time
     total_start_time = time.perf_counter()
@@ -682,17 +840,25 @@ async def run_benchmark_evaluation(
                     structured_memory_context
                 )
                 
-                # Choose the appropriate API based on model name or environment variables
-                if os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_BASE_URL"):
-                    # Use OpenAI compatible API if environment variables are set
-                    llm_response_model = call_openai_compatible(prompt_for_llm, model_name, len(choices))
-                else:
-                    # Fall back to original OpenRouter API
-                    llm_response_model = call_openrouter(prompt_for_llm, model_name, len(choices))
+                # Call MemFuse Gemini client with memory integration
+                llm_response_model = await _call_memfuse_gemini(
+                    prompt_for_llm.system,
+                    prompt_for_llm.user,
+                    model_name,
+                    query_memory_instance,
+                    len(choices),
+                    max_retries=20,
+                    logger=logger
+                )
                 
                 model_choice_idx = llm_response_model.index
                 model_explanation = llm_response_model.reasoning
                 is_correct = (model_choice_idx == correct_choice_index)
+                
+                # Track retry statistics
+                total_retries += llm_response_model.retry_count
+                if llm_response_model.failed_after_retries:
+                    final_failures += 1
                 
                 if is_correct:
                     correct_answers_count += 1
@@ -715,6 +881,8 @@ async def run_benchmark_evaluation(
                     "explanation": model_explanation,
                     "top_k": top_k,
                     "retrieval_time_ms": query_duration * 1000,
+                    "retry_count": llm_response_model.retry_count,
+                    "failed_after_retries": llm_response_model.failed_after_retries,
                 })
                 
             except ConnectionError as e:
@@ -756,8 +924,12 @@ async def run_benchmark_evaluation(
             p95_time = np.percentile(all_query_times, 95)
             
             logger.info(f"P50 Query Time: {p50_time * 1000:.2f}ms, P90 Query Time: {p90_time * 1000:.2f}ms, P95 Query Time: {p95_time * 1000:.2f}ms")
-            
-            # Note: Summary printing is now handled in the main scripts
+        
+        # Log retry statistics
+        logger.info(f"Total retries: {total_retries}")
+        logger.info(f"Final failures after all retries: {final_failures}")
+        
+        # Note: Summary printing is now handled in the main scripts
         
         return BenchmarkResults(
             question_results=results_summary,
@@ -765,5 +937,7 @@ async def run_benchmark_evaluation(
             success_count=len(valid_results),
             total_count=len(dataset),
             accuracy=accuracy,
-            total_elapsed_time=total_elapsed_time
+            total_elapsed_time=total_elapsed_time,
+            total_retries=total_retries,
+            final_failures=final_failures
         )
