@@ -69,6 +69,7 @@ def print_benchmark_summary(results, dataset_name):
         filepath = os.path.join(results_dir, filename)
         
         try:
+            os.makedirs(results_dir, exist_ok=True)
             with open(filepath, 'w') as f:
                 for question_id in incorrect_question_ids:
                     f.write(f"{question_id}\n")
@@ -153,6 +154,7 @@ async def main():
     parser.add_argument("--random", action="store_true", help="Random sampling vs deterministic order")
     parser.add_argument("--start-index", type=int, default=0, help="Starting index for deterministic sampling")
     parser.add_argument("--question-types", nargs="+", help="Filter by question types (LME only)")
+    parser.add_argument("--question-ids-file", type=str, help="File containing question IDs to test (one per line)")
     parser.add_argument("--top-k", type=int, help="Override default TOP_K value for memory retrieval")
     parser.add_argument("--model", type=str, help="Override default model name")
     
@@ -162,6 +164,34 @@ async def main():
     if args.question_types and args.dataset != "lme":
         logger.warning(f"--question-types is only supported for LME dataset, ignoring for {args.dataset}")
         args.question_types = None
+    
+    # Load question IDs from file if provided
+    question_ids_from_file = None
+    if args.question_ids_file:
+        try:
+            with open(args.question_ids_file, 'r') as f:
+                question_ids_from_file = [line.strip() for line in f if line.strip()]
+            logger.info(f"Loaded {len(question_ids_from_file)} question IDs from {args.question_ids_file}")
+            
+            # When using question-ids-file, override conflicting options
+            if args.load_all:
+                logger.info("--load-all ignored when using --question-ids-file")
+                args.load_all = False
+            if args.num_questions != 10:  # Only warn if user explicitly changed from default
+                logger.info("--num-questions ignored when using --question-ids-file") 
+            if args.random:
+                logger.info("--random ignored when using --question-ids-file")
+                args.random = False
+            if args.start_index != 0:
+                logger.info("--start-index ignored when using --question-ids-file")
+                args.start_index = 0
+                
+        except FileNotFoundError:
+            logger.error(f"Question IDs file not found: {args.question_ids_file}")
+            return
+        except Exception as e:
+            logger.error(f"Error reading question IDs file: {e}")
+            return
     
     # Get dataset configuration
     config_settings = DATASET_CONFIGS[args.dataset]
@@ -180,7 +210,7 @@ async def main():
             logger.info("Loading all question types (no filtering applied).")
     
     # Convert args to config
-    config = args_to_config(args, args.dataset)
+    config = args_to_config(args, args.dataset, question_ids_from_file)
     
     # Load dataset using centralized function
     dataset = load_benchmark_dataset(config, logger)

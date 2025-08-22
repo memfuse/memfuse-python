@@ -22,6 +22,7 @@ class DataLoadingConfig:
     start_index: int = 0
     load_all: bool = False
     question_types: Optional[List[str]] = None
+    question_ids: Optional[List[str]] = None
     
     @property
     def effective_num_samples(self) -> int:
@@ -97,7 +98,7 @@ def create_standard_parser(description: str, dataset_name: str, include_question
     return parser
 
 
-def args_to_config(args: argparse.Namespace, dataset_key: str) -> DataLoadingConfig:
+def args_to_config(args: argparse.Namespace, dataset_key: str, question_ids: Optional[List[str]] = None) -> DataLoadingConfig:
     """Convert argument namespace to DataLoadingConfig."""
     return DataLoadingConfig(
         dataset_key=dataset_key,
@@ -105,7 +106,8 @@ def args_to_config(args: argparse.Namespace, dataset_key: str) -> DataLoadingCon
         random_sampling=args.random,
         start_index=args.start_index,
         load_all=args.load_all,
-        question_types=getattr(args, 'question_types', None)
+        question_types=getattr(args, 'question_types', None),
+        question_ids=question_ids
     )
 
 
@@ -511,6 +513,24 @@ def load_benchmark_dataset(
     if not dataset:
         logger.error("Failed to load dataset.")
         return []
+    
+    # Apply question ID filtering if specified
+    if config.question_ids:
+        original_count = len(dataset)
+        dataset = [item for item in dataset if item.get('question_id') in config.question_ids]
+        filtered_count = len(dataset)
+        
+        if filtered_count == 0:
+            logger.error("No questions match the provided question IDs.")
+            return []
+        
+        logger.info(f"Filtered dataset by question IDs: {filtered_count}/{original_count} questions matched")
+        
+        # Log which question IDs were not found
+        found_ids = {item.get('question_id') for item in dataset}
+        missing_ids = set(config.question_ids) - found_ids
+        if missing_ids:
+            logger.warning(f"Question IDs not found in dataset: {', '.join(sorted(missing_ids))}")
     
     actual_count = len(dataset)
     requested_count = config.effective_num_samples
