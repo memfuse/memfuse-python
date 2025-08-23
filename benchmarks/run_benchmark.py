@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import sys
 import os
-import logging
+from loguru import logger
 import asyncio
 import argparse
 
@@ -9,14 +9,6 @@ from dotenv import load_dotenv
 import plotext as plt
 
 load_dotenv(override=True)
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
-logger = logging.getLogger(__name__)
 
 # Get the absolute path to the project root
 script_dir = os.path.dirname(os.path.abspath(__file__))
