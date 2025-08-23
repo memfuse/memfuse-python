@@ -29,7 +29,7 @@ from benchmarks.utils import (
     create_standard_parser, 
     args_to_config, 
     load_benchmark_dataset,
-    run_benchmark_evaluation
+    run_question_by_question_evaluation
 )
 
 # Dataset-specific settings
@@ -157,6 +157,10 @@ async def main():
     parser.add_argument("--question-ids-file", type=str, help="File containing question IDs to test (one per line)")
     parser.add_argument("--top-k", type=int, help="Override default TOP_K value for memory retrieval")
     parser.add_argument("--model", type=str, help="Override default model name")
+    parser.add_argument("--llm-provider", type=str, choices=["gemini", "openai", "anthropic"], 
+                        default="gemini", help="LLM provider to use (default: gemini)")
+    parser.add_argument("--no-data-loading", action="store_true", 
+                        help="Skip loading haystack data per question (assumes data already loaded)")
     
     args = parser.parse_args()
     
@@ -218,12 +222,23 @@ async def main():
         logger.error("Failed to load dataset. Exiting.")
         return
     
-    # Run benchmark evaluation using centralized function
-    results = await run_benchmark_evaluation(
+    # Explain the question-by-question approach
+    if args.no_data_loading:
+        logger.info("🔗 Using question-by-question testing with EXISTING data (--no-data-loading enabled)")
+        logger.info("📋 Assumes haystack data already loaded via load_data.py")
+    else:
+        logger.info("🔄 Using question-by-question testing with FRESH data loading")
+        logger.info("📥 Will load haystack data for each question individually and test immediately")
+    
+    # Run benchmark evaluation using question-by-question approach
+    results = await run_question_by_question_evaluation(
         dataset=dataset,
         dataset_name=args.dataset,
+        dataset_type=args.dataset,  # Dataset type matches dataset name (msc, lme, locomo)
         top_k=top_k,
         model_name=model_name,
+        llm_provider=args.llm_provider,
+        skip_data_loading=args.no_data_loading,
         logger=logger
     )
     

@@ -45,14 +45,20 @@ class PromptContext:
     def long_term_memory(self) -> List[Dict[str, str]]:
         """
         Returns a list of long-term memory items.
+        Includes memories with cross_session scope OR memories with no scope (None/missing).
         """
         return [
             item for item in self.retrieved_memories
-            if item.get("metadata", {}).get("scope") == "cross_session"
+            if item.get("metadata", {}).get("scope") in ["cross_session", None] or 
+               "scope" not in item.get("metadata", {})
         ]
 
     @property
     def short_term_memory(self) -> List[Dict[str, str]]:
+        """
+        Returns a list of short-term memory items.
+        Only includes memories specifically marked as in_session scope.
+        """
         return [
             item for item in self.retrieved_memories
             if item.get("metadata", {}).get("scope") == "in_session"
