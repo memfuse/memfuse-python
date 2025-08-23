@@ -304,14 +304,14 @@ Example: {{"index": 2, "reasoning": "Option 2 is correct because..."}}"""
             http_options=http_options
         )
     elif llm_provider == "openai":
-        from memfuse.llm import AsyncOpenAIClient
-        client = AsyncOpenAIClient(
+        from memfuse.llm import AsyncOpenAI
+        client = AsyncOpenAI(
             memory=memory_instance,
             api_key=os.getenv("OPENAI_API_KEY")
         )
     elif llm_provider == "anthropic":
-        from memfuse.llm import AsyncAnthropicClient
-        client = AsyncAnthropicClient(
+        from memfuse.llm import AsyncAnthropic
+        client = AsyncAnthropic(
             memory=memory_instance,
             api_key=os.getenv("ANTHROPIC_API_KEY")
         )
