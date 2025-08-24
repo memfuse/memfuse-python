@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import sys
 import os
-import logging
+from loguru import logger
 import asyncio
 import argparse
 
@@ -9,14 +9,6 @@ from dotenv import load_dotenv
 import plotext as plt
 
 load_dotenv(override=True)
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
-logger = logging.getLogger(__name__)
 
 # Get the absolute path to the project root
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,22 +21,31 @@ from benchmarks.utils import (
     create_standard_parser, 
     args_to_config, 
     load_benchmark_dataset,
-    run_benchmark_evaluation
+    run_question_by_question_evaluation
 )
 
-# Dataset-specific settings
+def get_default_model(llm_provider):
+    """Get the default model based on the LLM provider."""
+    if llm_provider == "openai":
+        return os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano")
+    elif llm_provider == "gemini":
+        return os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+    elif llm_provider == "anthropic":
+        return os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+    else:
+        # Default fallback to gemini
+        return os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+
+# Dataset-specific settings (top_k values only, models determined by provider)
 DATASET_CONFIGS = {
     "msc": {
         "top_k": 3,
-        "model_name": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     },
     "lme": {
         "top_k": 20,
-        "model_name": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     },
     "locomo": {
         "top_k": 5,
-        "model_name": os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     }
 }
 
@@ -156,7 +157,17 @@ async def main():
     parser.add_argument("--question-types", nargs="+", help="Filter by question types (LME only)")
     parser.add_argument("--question-ids-file", type=str, help="File containing question IDs to test (one per line)")
     parser.add_argument("--top-k", type=int, help="Override default TOP_K value for memory retrieval")
-    parser.add_argument("--model", type=str, help="Override default model name")
+    parser.add_argument("--llm-provider", type=str, choices=["gemini", "openai", "anthropic"], 
+                        default="gemini", help="LLM provider to use (default: gemini)")
+    
+    # Parse args partially to get the provider first
+    known_args, _ = parser.parse_known_args()
+    default_model = get_default_model(known_args.llm_provider)
+    
+    parser.add_argument("--model", type=str, default=default_model, 
+                        help=f"Model name (default for {known_args.llm_provider}: {default_model})")
+    parser.add_argument("--no-data-loading", action="store_true", 
+                        help="Skip loading haystack data per question (assumes data already loaded)")
     
     args = parser.parse_args()
     
@@ -196,7 +207,7 @@ async def main():
     # Get dataset configuration
     config_settings = DATASET_CONFIGS[args.dataset]
     top_k = args.top_k if args.top_k else config_settings["top_k"]
-    model_name = args.model if args.model else config_settings["model_name"]
+    model_name = args.model  # Use the model from args (which now has provider-specific default)
     
     # Log dataset info
     logger.info(f"Running {args.dataset.upper()} benchmark")
@@ -218,12 +229,23 @@ async def main():
         logger.error("Failed to load dataset. Exiting.")
         return
     
-    # Run benchmark evaluation using centralized function
-    results = await run_benchmark_evaluation(
+    # Explain the question-by-question approach
+    if args.no_data_loading:
+        logger.info("🔗 Using question-by-question testing with EXISTING data (--no-data-loading enabled)")
+        logger.info("📋 Assumes haystack data already loaded via load_data.py")
+    else:
+        logger.info("🔄 Using question-by-question testing with FRESH data loading")
+        logger.info("📥 Will load haystack data for each question individually and test immediately")
+    
+    # Run benchmark evaluation using question-by-question approach
+    results = await run_question_by_question_evaluation(
         dataset=dataset,
         dataset_name=args.dataset,
+        dataset_type=args.dataset,  # Dataset type matches dataset name (msc, lme, locomo)
         top_k=top_k,
         model_name=model_name,
+        llm_provider=args.llm_provider,
+        skip_data_loading=args.no_data_loading,
         logger=logger
     )
     

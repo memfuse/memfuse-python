@@ -1,8 +1,10 @@
 # src/memfuse/llm/openai_adapter.py
 from __future__ import annotations
-from typing import Any, Dict, List, Callable
+from typing import Any, Dict, List, Callable, Optional
 import inspect, functools
 import logging
+import contextvars
+import time
 
 from openai import OpenAI, AsyncOpenAI
 
@@ -11,6 +13,11 @@ from memfuse.prompts import PromptContext, PromptFormatter
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
+
+# Context variables to capture query responses, timing, and prompt context for debugging (invisible to SDK users)
+_debug_query_response: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar('debug_query_response', default=None)
+_debug_query_time: contextvars.ContextVar[Optional[float]] = contextvars.ContextVar('debug_query_time', default=None)
+_debug_prompt_context: contextvars.ContextVar[Optional[PromptContext]] = contextvars.ContextVar('debug_prompt_context', default=None)
 
 
 def _wrap_create(
@@ -66,9 +73,20 @@ def _wrap_create(
         # ------- 3. Retrieve memories ---------------------------------------
         query_string = PromptFormatter.messages_to_query(chat_history + query_messages)
         logger.info(f"Query string for memory: {query_string}")
+        
+        # Measure query time
+        query_start_time = time.perf_counter()
         query_response = memory.query_session(query_string)
+        query_end_time = time.perf_counter()
+        query_duration = query_end_time - query_start_time
+        
+        # Store query response and timing for debugging access (invisible to normal users)
+        _debug_query_response.set(query_response)
+        _debug_query_time.set(query_duration)
+        
         logger.info(f"Query response type: {type(query_response)}")
         logger.info(f"Query response content: {query_response}")
+        logger.info(f"Query took {query_duration * 1000:.2f} ms")
 
         # Log the structure of the response to understand the format
         if isinstance(query_response, dict):
@@ -95,6 +113,9 @@ def _wrap_create(
             retrieved_chat_history=chat_history,
             max_chat_history=max_chat_history,
         )
+        
+        # Store prompt context for debugging access (invisible to normal users)
+        _debug_prompt_context.set(prompt_context)
 
         full_msg = prompt_context.compose_for_openai()
 
@@ -252,9 +273,20 @@ def _async_wrap_create(
         # ------- 3. Retrieve memories ---------------------------------------
         query_string = PromptFormatter.messages_to_query(chat_history + query_messages)
         logger.info(f"Query string for memory: {query_string}")
+        
+        # Measure query time
+        query_start_time = time.perf_counter()
         query_response = await memory.query_session(query_string)
+        query_end_time = time.perf_counter()
+        query_duration = query_end_time - query_start_time
+        
+        # Store query response and timing for debugging access (invisible to normal users)
+        _debug_query_response.set(query_response)
+        _debug_query_time.set(query_duration)
+        
         logger.info(f"Query response type: {type(query_response)}")
         logger.info(f"Query response content: {query_response}")
+        logger.info(f"Query took {query_duration * 1000:.2f} ms")
 
         # Log the structure of the response to understand the format
         if isinstance(query_response, dict):
@@ -281,6 +313,9 @@ def _async_wrap_create(
             retrieved_chat_history=chat_history,
             max_chat_history=max_chat_history,
         )
+        
+        # Store prompt context for debugging access (invisible to normal users)
+        _debug_prompt_context.set(prompt_context)
 
         full_msg = prompt_context.compose_for_openai()
 
@@ -409,3 +444,53 @@ class AsyncMemOpenAI(AsyncOpenAI):
 
         original_create = self.chat.completions.create
         self.chat.completions.create = _async_wrap_create(original_create, self.memory)  # type: ignore[assignment]
+
+
+# Debug utilities (for benchmarks and debugging)
+def get_last_query_response() -> Optional[Dict[str, Any]]:
+    """
+    Get the last query response for debugging purposes.
+    
+    This function allows access to the intermediate query response from memory.query_session()
+    that occurs within the OpenAI adapter. This is useful for benchmarks and debugging to 
+    inspect what memories were retrieved.
+    
+    Returns:
+        The last query response dict if available, None otherwise.
+        
+    Note:
+        This is intended for debugging/benchmarking use only and should not be used
+        in production code as it relies on internal implementation details.
+    """
+    return _debug_query_response.get(None)
+
+
+def get_last_query_time() -> Optional[float]:
+    """
+    Get the last query timing for debugging purposes.
+    
+    Returns:
+        The last query duration in seconds if available, None otherwise.
+        
+    Note:
+        This is intended for debugging/benchmarking use only and should not be used
+        in production code as it relies on internal implementation details.
+    """
+    return _debug_query_time.get(None)
+
+
+def get_last_prompt_context() -> Optional[PromptContext]:
+    """
+    Get the last prompt context for debugging purposes.
+    
+    This function allows access to the PromptContext object that was used to compose
+    the final prompt sent to the LLM. This is useful for debugging prompt composition.
+    
+    Returns:
+        The last PromptContext object if available, None otherwise.
+        
+    Note:
+        This is intended for debugging/benchmarking use only and should not be used
+        in production code as it relies on internal implementation details.
+    """
+    return _debug_prompt_context.get(None)

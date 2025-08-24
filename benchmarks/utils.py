@@ -260,71 +260,119 @@ def apply_question_type_filter(
     return filtered_dataset
 
 
-async def _call_memfuse_gemini(
-        prompt_system: str,
-        prompt_user: str,
+async def _call_memfuse(
+        query: str,
+        choices_length: int,
         model_name: str,
         memory_instance,
-        choices_length: int,
+        llm_provider: str = "gemini",
         max_retries: int = 20,
         logger: Optional[logging.Logger] = None
     ):
-    """Call MemFuse Gemini client and parse response."""
+    """Call MemFuse client and parse response."""
     if logger is None:
         logger = logging.getLogger(__name__)
     
-    from memfuse.llm import AsyncGeminiClient
     from tests.utils.data_models import MultipleChoiceResponse
     import json
     import re
     
-    # Initialize MemFuse AsyncGeminiClient with memory
-    from google.genai import types
-    
-    # Configure HTTP options for proxy if base URL is provided
-    http_options = None
-    if os.getenv("GEMINI_BASE_URL"):
-        http_options = types.HttpOptions(
-            base_url=os.getenv("GEMINI_BASE_URL")
+    # Create system prompt with response format instructions
+    system_prompt = f"""You are answering a multiple choice question. There are {choices_length} choices (0-indexed from 0 to {choices_length-1}). 
+
+Please respond in JSON format with:
+- "index": the 0-based index of your chosen answer (integer from 0 to {choices_length-1})
+- "reasoning": brief explanation of your choice (string)
+
+Example: {{"index": 2, "reasoning": "Option 2 is correct because..."}}"""
+
+    # Initialize the appropriate client based on provider
+    if llm_provider == "gemini":
+        from memfuse.llm import AsyncGeminiClient
+        from google.genai import types
+        
+        # Configure HTTP options for proxy if base URL is provided
+        http_options = None
+        if os.getenv("GEMINI_BASE_URL"):
+            http_options = types.HttpOptions(
+                base_url=os.getenv("GEMINI_BASE_URL")
+            )
+        
+        client = AsyncGeminiClient(
+            memory=memory_instance,
+            api_key=os.getenv("GEMINI_API_KEY"),
+            http_options=http_options
         )
-    
-    client = AsyncGeminiClient(
-        memory=memory_instance,
-        api_key=os.getenv("GEMINI_API_KEY"),
-        http_options=http_options
-    )
+    elif llm_provider == "openai":
+        from memfuse.llm import AsyncOpenAI
+        client = AsyncOpenAI(
+            memory=memory_instance,
+            api_key=os.getenv("OPENAI_API_KEY")
+        )
+    elif llm_provider == "anthropic":
+        from memfuse.llm import AsyncAnthropic
+        client = AsyncAnthropic(
+            memory=memory_instance,
+            api_key=os.getenv("ANTHROPIC_API_KEY")
+        )
+    else:
+        raise ValueError(f"Unsupported LLM provider: {llm_provider}")
     
     # Retry logic with exponential backoff
     for attempt in range(max_retries + 1):
         try:
-            # Combine system and user prompts for Gemini
-            combined_prompt = f"System: {prompt_system}\n\nUser: {prompt_user}\n\nPlease respond in JSON format with an 'index' field (0-based choice index) and a 'reasoning' field."
-            
             if attempt > 0:
                 delay = 2 ** (attempt - 1)
-                logger.info(f"Retrying MemFuse Gemini call (attempt {attempt + 1}/{max_retries + 1}) after {delay}s delay...")
+                logger.info(f"Retrying MemFuse {llm_provider} call (attempt {attempt + 1}/{max_retries + 1}) after {delay}s delay...")
                 await asyncio.sleep(delay)
             
-            # Call AsyncGeminiClient with memory integration
-            response = await client.models.generate_content_async(
-                model=model_name,
-                contents=combined_prompt
-            )
+            # Call the appropriate client with memory integration
+            if llm_provider == "gemini":
+                # Combine system and user prompts for Gemini
+                combined_prompt = f"System: {system_prompt}\n\nUser: {query}"
+                response = await client.models.generate_content_async(
+                    model=model_name,
+                    contents=combined_prompt
+                )
+            elif llm_provider == "openai":
+                response = await client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": query}
+                    ]
+                )
+            elif llm_provider == "anthropic":
+                response = await client.messages.create(
+                    model=model_name,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": query}],
+                    max_tokens=1000
+                )
             
-            # Extract response content from Gemini's response structure
+            # Extract response content based on provider
             response_content = ""
-            if response and response.candidates:
-                if response.candidates[0].content and response.candidates[0].content.parts:
-                    for part in response.candidates[0].content.parts:
-                        if part.text:
-                            response_content += part.text
+            if llm_provider == "gemini":
+                if response and response.candidates:
+                    if response.candidates[0].content and response.candidates[0].content.parts:
+                        for part in response.candidates[0].content.parts:
+                            if part.text:
+                                response_content += part.text
+            elif llm_provider == "openai":
+                if response and response.choices and response.choices[0].message:
+                    response_content = response.choices[0].message.content or ""
+            elif llm_provider == "anthropic":
+                if response and response.content:
+                    for content_item in response.content:
+                        if hasattr(content_item, 'text') and content_item.text:
+                            response_content += content_item.text
             
             if not response_content:
                 if attempt < max_retries:
-                    logger.warning(f"Received empty response from MemFuse Gemini client (attempt {attempt + 1}), retrying...")
+                    logger.warning(f"Received empty response from MemFuse {llm_provider} client (attempt {attempt + 1}), retrying...")
                     continue
                 else:
-                    logger.error("Received empty response from MemFuse Gemini client after all retries")
+                    logger.error(f"Received empty response from MemFuse {llm_provider} client after all retries")
                     return MultipleChoiceResponse(
                         index=0,
                         reasoning="Empty response from API after all retries",
@@ -333,7 +381,7 @@ async def _call_memfuse_gemini(
                         failed_after_retries=True
                     )
             
-            logger.debug(f"MemFuse Gemini response: {response_content}")
+            logger.debug(f"MemFuse {llm_provider} response: {response_content}")
             
             # Parse JSON response
             try:
@@ -370,10 +418,18 @@ async def _call_memfuse_gemini(
                     logger.warning(f"Model returned choice index {index} which is out of range (0-{choices_length-1}). Defaulting to 0.")
                     index = 0
                 
+                # Capture retrieval debug info after successful LLM call
+                retrieval_debug = get_retrieval_debug_info(llm_provider)
+                retrieval_info = ""
+                if retrieval_debug:
+                    results = retrieval_debug.get("data", {}).get("results", [])
+                    retrieval_info = f" | Retrieved: {len(results)} memories"
+                    logger.debug(f"Retrieval debug info: {len(results)} memories retrieved")
+                
                 return MultipleChoiceResponse(
                     index=index,
                     reasoning=str(reasoning),
-                    description="Response from MemFuse Gemini client",
+                    description=f"Response from MemFuse {llm_provider} client{retrieval_info}",
                     retry_count=attempt,
                     failed_after_retries=False
                 )
@@ -394,7 +450,7 @@ async def _call_memfuse_gemini(
                 return MultipleChoiceResponse(
                     index=index,
                     reasoning=response_content[:200] + "..." if len(response_content) > 200 else response_content,
-                    description="Fallback text parsing from MemFuse Gemini",
+                    description=f"Fallback text parsing from MemFuse {llm_provider}",
                     retry_count=attempt,
                     failed_after_retries=False
                 )
@@ -402,14 +458,14 @@ async def _call_memfuse_gemini(
         except Exception as e:
             if attempt < max_retries:
                 delay = 2 ** attempt
-                logger.warning(f"Error calling MemFuse Gemini client (attempt {attempt + 1}): {e}, retrying in {delay}s...")
+                logger.warning(f"Error calling MemFuse {llm_provider} client (attempt {attempt + 1}): {e}, retrying in {delay}s...")
                 await asyncio.sleep(delay)
                 continue
             else:
-                logger.error(f"Error calling MemFuse Gemini client after all retries: {e}")
+                logger.error(f"Error calling MemFuse {llm_provider} client after all retries: {e}")
                 return MultipleChoiceResponse(
                     index=0,
-                    reasoning=f"Error calling MemFuse Gemini client after {max_retries + 1} attempts: {str(e)}",
+                    reasoning=f"Error calling MemFuse {llm_provider} client after {max_retries + 1} attempts: {str(e)}",
                     description="Error response",
                     retry_count=max_retries,
                     failed_after_retries=True
@@ -755,6 +811,7 @@ async def run_benchmark_evaluation(
         dataset_name: str, 
         top_k: int = 3,
         model_name: str = "deepseek-ai/DeepSeek-V3.1",
+        llm_provider: str = "gemini",
         logger: Optional[logging.Logger] = None
     ) -> BenchmarkResults:
     """Run benchmark evaluation on a dataset.
@@ -764,6 +821,7 @@ async def run_benchmark_evaluation(
         dataset_name: Name of dataset for recording (msc, lme, locomo)
         top_k: Number of top results to retrieve from memory
         model_name: LLM model to use for evaluation
+        llm_provider: LLM provider to use ("gemini", "openai", "anthropic")
         logger: Logger instance
     
     Returns:
@@ -774,11 +832,10 @@ async def run_benchmark_evaluation(
     
     # Import here to avoid circular imports
     from memfuse import AsyncMemFuse
-    from tests.utils.prompts import create_prompt
     from benchmarks.recorder import BenchmarkRecorder
     
     logger.info(f"Starting benchmark evaluation for {len(dataset)} questions...")
-    logger.info(f"Using model: {model_name}, TOP_K: {top_k}")
+    logger.info(f"Using {llm_provider} model: {model_name}, TOP_K: {top_k}")
     
     # Initialize recorder
     recorder = BenchmarkRecorder(dataset_name=dataset_name, top_k=top_k)
@@ -820,8 +877,8 @@ async def run_benchmark_evaluation(
             agent_name_for_test = "agent_default"
             
             try:
-                # Query Memory for the current question
-                logger.info(f"Querying MemFuse for relevant context for Q{question_number}...")
+                # Create memory instance for the current question 
+                logger.info(f"Initializing MemFuse for Q{question_number}...")
                 query_memory_instance = await memfuse_client.init(
                     user=user_name_for_test,
                     agent=agent_name_for_test,
@@ -829,44 +886,19 @@ async def run_benchmark_evaluation(
                 
                 all_created_mem_instances.append(query_memory_instance)
                 
-                start_time = time.perf_counter()
-                memory_response = await query_memory_instance.query(query=question_text, top_k=top_k)
-                end_time = time.perf_counter()
+                # Create the multiple choice question format
+                formatted_question = f"{question_text}\n\nChoices:\n"
+                for i, choice in enumerate(choices):
+                    formatted_question += f"{i}. {choice}\n"
                 
-                query_duration = end_time - start_time
-                all_query_times.append(query_duration)
-                
-                logger.info(f"MemFuse query for Q{question_number} took {query_duration * 1000:.2f} ms.")
-                
-                retrieved_results = memory_response.get("data", {}).get("results", [])
-                
-                # Store the full structured context items
-                structured_memory_context = []
-                if isinstance(retrieved_results, list):
-                    for result_item in retrieved_results:
-                        if isinstance(result_item, dict) and "content" in result_item:
-                            structured_memory_context.append(result_item)
-                
-                if not structured_memory_context:
-                    logger.warning(f"No context retrieved from memory for Q{question_number}.")
-                else:
-                    logger.info(f"Retrieved memory context for Q{question_number} with {len(structured_memory_context)} items.")
-                
-                # Call LLM for the current question
-                logger.info(f"Calling LLM for Q{question_number}...")
-                prompt_for_llm = create_prompt(
-                    question_text, 
-                    choices, 
-                    structured_memory_context
-                )
-                
-                # Call MemFuse Gemini client with memory integration
-                llm_response_model = await _call_memfuse_gemini(
-                    prompt_for_llm.system,
-                    prompt_for_llm.user,
-                    model_name,
-                    query_memory_instance,
-                    len(choices),
+                # Call LLM with MemFuse integration (SDK handles memory retrieval automatically)
+                logger.info(f"Calling MemFuse {llm_provider} for Q{question_number}...")
+                llm_response_model = await _call_memfuse(
+                    query=formatted_question,
+                    choices_length=len(choices),
+                    model_name=model_name,
+                    memory_instance=query_memory_instance,
+                    llm_provider=llm_provider,
                     max_retries=20,
                     logger=logger
                 )
@@ -882,6 +914,32 @@ async def run_benchmark_evaluation(
                 
                 if is_correct:
                     correct_answers_count += 1
+                
+                # Capture retrieval debug info and timing from the SDK
+                retrieval_debug = get_retrieval_debug_info(llm_provider)
+                retrieval_timing = get_retrieval_timing_info(llm_provider)
+                
+                retrieved_memories_count = 0
+                query_duration = retrieval_timing or 0.0  # Default to 0 if timing not available
+                all_query_times.append(query_duration)
+                
+                retrieved_memories_summary = None
+                if retrieval_debug:
+                    results = retrieval_debug.get("data", {}).get("results", [])
+                    retrieved_memories_count = len(results)
+                    logger.info(f"MemFuse query for Q{question_number} took {query_duration * 1000:.2f} ms.")
+                    # Create a summary for logging failed questions
+                    if not is_correct and results:
+                        retrieved_memories_summary = []
+                        for result in results[:3]:  # Show first 3 for brevity
+                            content = result.get("content", "")[:100]  # Truncate long content
+                            score = result.get("score", 0)
+                            retrieved_memories_summary.append(f"Score:{score:.3f} Content:{content}...")
+                        logger.info(f"Q{question_number} FAILED - Retrieved {retrieved_memories_count} memories: {retrieved_memories_summary}")
+                    elif not is_correct:
+                        logger.info(f"Q{question_number} FAILED - No memories retrieved from RAG")
+                else:
+                    logger.warning(f"No retrieval debug info available for Q{question_number}")
                 
                 logger.info(f"--- Q{question_number} RESULT ---")
                 logger.info(f"Question: {question_text}")
@@ -903,6 +961,8 @@ async def run_benchmark_evaluation(
                     "retrieval_time_ms": query_duration * 1000,
                     "retry_count": llm_response_model.retry_count,
                     "failed_after_retries": llm_response_model.failed_after_retries,
+                    "retrieved_memories_count": retrieved_memories_count,
+                    "retrieval_debug_available": retrieval_debug is not None,
                 })
                 
             except ConnectionError as e:
@@ -950,6 +1010,372 @@ async def run_benchmark_evaluation(
         logger.info(f"Final failures after all retries: {final_failures}")
         
         # Note: Summary printing is now handled in the main scripts
+        
+        return BenchmarkResults(
+            question_results=results_summary,
+            query_times=all_query_times,
+            success_count=len(valid_results),
+            total_count=len(dataset),
+            accuracy=accuracy,
+            total_elapsed_time=total_elapsed_time,
+            total_retries=total_retries,
+            final_failures=final_failures
+        )
+
+
+def get_retrieval_debug_info(llm_provider: str = "gemini") -> Optional[Dict[str, Any]]:
+    """
+    Get retrieval debug information from the last MemFuse query.
+    
+    This function provides access to the intermediate query response from
+    memory.query_session() that occurs within the MemFuse LLM wrappers.
+    Useful for debugging whether retrieval is working correctly.
+    
+    Args:
+        llm_provider: The LLM provider to get debug info from ("gemini", "openai", "anthropic")
+    
+    Returns:
+        Dict containing query response with retrieval results, or None if not available.
+        The dict typically contains:
+        - "data": {"results": [...]} - the retrieved memories
+        - Other metadata from the query response
+    
+    Usage:
+        # After calling a MemFuse-enabled LLM
+        debug_info = get_retrieval_debug_info("openai")
+        if debug_info:
+            results = debug_info.get("data", {}).get("results", [])
+            print(f"Retrieved {len(results)} memories")
+    """
+    try:
+        if llm_provider == "gemini":
+            from memfuse.llm.gemini_adapter import get_last_query_response
+            return get_last_query_response()
+        elif llm_provider == "openai":
+            from memfuse.llm.openai_adapter import get_last_query_response
+            return get_last_query_response()
+        elif llm_provider == "anthropic":
+            from memfuse.llm.anthropic_adapter import get_last_query_response
+            return get_last_query_response()
+        else:
+            return None
+    except ImportError:
+        # In case the adapter is not available
+        return None
+
+
+def get_retrieval_timing_info(llm_provider: str = "gemini") -> Optional[float]:
+    """
+    Get retrieval timing information from the last MemFuse query.
+    
+    Args:
+        llm_provider: The LLM provider to get timing info from ("gemini", "openai", "anthropic")
+    
+    Returns:
+        Query duration in seconds if available, None otherwise.
+    """
+    try:
+        if llm_provider == "gemini":
+            from memfuse.llm.gemini_adapter import get_last_query_time
+            return get_last_query_time()
+        elif llm_provider == "openai":
+            from memfuse.llm.openai_adapter import get_last_query_time
+            return get_last_query_time()
+        elif llm_provider == "anthropic":
+            from memfuse.llm.anthropic_adapter import get_last_query_time
+            return get_last_query_time()
+        else:
+            return None
+    except ImportError:
+        # In case the adapter is not available
+        return None
+
+
+async def run_question_by_question_evaluation(
+        dataset: List[Dict[str, Any]],
+        dataset_name: str,
+        dataset_type: str,
+        top_k: int = 3,
+        model_name: str = "deepseek-ai/DeepSeek-V3.1",
+        llm_provider: str = "gemini",
+        skip_data_loading: bool = False,
+        logger: Optional[logging.Logger] = None
+    ) -> BenchmarkResults:
+    """Run benchmark evaluation with question-by-question data loading and testing.
+    
+    This function loads haystack data for each question individually and immediately 
+    tests it, providing better isolation and debugging capabilities.
+    
+    Args:
+        dataset: List of questions with haystack sessions, choices and correct answers
+        dataset_name: Name of dataset for recording (msc, lme, locomo)  
+        dataset_type: Type of dataset (msc, lme, locomo)
+        top_k: Number of top results to retrieve from memory
+        model_name: LLM model to use for evaluation
+        llm_provider: LLM provider to use ("gemini", "openai", "anthropic")
+        skip_data_loading: Skip loading haystack data (assumes already loaded)
+        logger: Logger instance
+    
+    Returns:
+        BenchmarkResults with evaluation statistics
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    # Import here to avoid circular imports
+    from memfuse import AsyncMemFuse
+    from benchmarks.recorder import BenchmarkRecorder
+    
+    logger.info(f"Starting question-by-question benchmark evaluation for {len(dataset)} questions...")
+    logger.info(f"Using {llm_provider} model: {model_name}, TOP_K: {top_k}")
+    logger.info(f"Data loading: {'SKIPPED' if skip_data_loading else 'ENABLED'}")
+    
+    # Initialize recorder
+    recorder = BenchmarkRecorder(dataset_name=dataset_name, top_k=top_k)
+    
+    # Tracking variables
+    all_query_times = []
+    correct_answers_count = 0
+    results_summary = []
+    total_retries = 0
+    final_failures = 0
+    
+    # Track total elapsed time
+    total_start_time = time.perf_counter()
+    
+    # Use async context manager for proper resource cleanup
+    async with AsyncMemFuse() as memfuse_client:
+        for i, data_sample in enumerate(dataset):
+            question_number = i + 1
+            logger.info(f"\n--- Processing Question {question_number}/{len(dataset)} ---")
+            
+            question_id = data_sample.get('question_id', f"q_{uuid.uuid4().hex[:8]}")
+            question_text = data_sample.get('question')
+            choices = data_sample.get('choices')
+            correct_choice_index = data_sample.get('correct_choice_index')
+            
+            # Data for loading (if not skipping)
+            haystack_session_ids = data_sample.get('haystack_session_ids', [])
+            haystack_sessions_data = data_sample.get('haystack_sessions', [])
+            
+            if not all([question_text, choices, correct_choice_index is not None]):
+                logger.error(f"Question {question_number} (ID: {question_id}): Missing required fields for evaluation. Skipping.")
+                results_summary.append({
+                    "question_id": question_id,
+                    "question_text": question_text,
+                    "status": "SKIPPED - Missing data"
+                })
+                continue
+            
+            logger.info(f"Question {question_number} (ID: {question_id}): {question_text}")
+            
+            user_name_for_test = question_id
+            agent_name_for_test = "agent_default"
+            
+            try:
+                # Step 1: Load haystack data for this question (unless skipping)
+                if not skip_data_loading:
+                    if not all([haystack_session_ids, haystack_sessions_data]):
+                        logger.error(f"Question {question_number} (ID: {question_id}): Missing haystack data. Skipping.")
+                        results_summary.append({
+                            "question_id": question_id,
+                            "question_text": question_text,
+                            "status": "SKIPPED - Missing haystack data"
+                        })
+                        continue
+                    
+                    logger.info(f"Loading {len(haystack_sessions_data)} haystack sessions for Q{question_number}...")
+                    
+                    for session_id, messages_for_session in zip(haystack_session_ids, haystack_sessions_data):
+                        if not messages_for_session:
+                            logger.warning(f"Skipping empty session '{session_id}' for Q{question_number}")
+                            continue
+                        
+                        logger.info(f"Loading session '{session_id}' for Q{question_number}")
+                        
+                        # Create memory instance for this session
+                        session_memory_instance = await memfuse_client.init(
+                            user=user_name_for_test,
+                            agent=agent_name_for_test,
+                            session=session_id
+                        )
+                        
+                        # Convert messages to MemFuse format
+                        memfuse_messages = convert_messages_for_memfuse(messages_for_session, dataset_type)
+                        
+                        logger.info(f"Adding {len(memfuse_messages)} messages to session '{session_id}'")
+                        add_result = await session_memory_instance.add(memfuse_messages)
+                        
+                        if add_result.get("status") == "success":
+                            logger.info(f"Successfully loaded session '{session_id}' for Q{question_number}")
+                        else:
+                            logger.error(f"Failed to load session '{session_id}' for Q{question_number}: {add_result}")
+                            continue
+                
+                # Step 2: Create query memory instance (this will aggregate from all sessions)
+                logger.info(f"Creating query memory instance for Q{question_number}...")
+                query_memory_instance = await memfuse_client.init(
+                    user=user_name_for_test,
+                    agent=agent_name_for_test,
+                )
+                
+                # Step 3: Test the question with MemFuse integration
+                formatted_question = f"{question_text}\n\nChoices:\n"
+                for j, choice in enumerate(choices):
+                    formatted_question += f"{j}. {choice}\n"
+                
+                logger.info(f"Testing Q{question_number} with MemFuse {llm_provider}...")
+                llm_response_model = await _call_memfuse(
+                    query=formatted_question,
+                    choices_length=len(choices),
+                    model_name=model_name,
+                    memory_instance=query_memory_instance,
+                    llm_provider=llm_provider,
+                    max_retries=20,
+                    logger=logger
+                )
+                
+                # Debug: Access prompt context immediately after LLM call
+                if llm_provider == "gemini":
+                    from src.memfuse.llm.gemini_adapter import get_last_prompt_context
+                    prompt_context = get_last_prompt_context()
+                    if prompt_context:
+                        logger.info("=== PROMPT CONTEXT DEBUG ===")
+                        composed_prompt = prompt_context.compose_for_gemini()
+                        for i, msg in enumerate(composed_prompt):
+                            logger.info(f"PROMPT PART {i+1} [{msg['role'].upper()}]: {msg['content'][:500]}...")
+                        logger.info("=== END PROMPT CONTEXT DEBUG ===")
+                    else:
+                        logger.info("No prompt context available for debugging")
+                elif llm_provider == "openai":
+                    from src.memfuse.llm.openai_adapter import get_last_prompt_context
+                    prompt_context = get_last_prompt_context()
+                    if prompt_context:
+                        logger.info("=== PROMPT CONTEXT DEBUG ===")
+                        composed_prompt = prompt_context.compose_for_openai()
+                        for i, msg in enumerate(composed_prompt):
+                            logger.info(f"PROMPT PART {i+1} [{msg['role'].upper()}]: {msg['content'][:500]}...")
+                        logger.info("=== END PROMPT CONTEXT DEBUG ===")
+                    else:
+                        logger.info("No prompt context available for debugging")
+                elif llm_provider == "anthropic":
+                    from src.memfuse.llm.anthropic_adapter import get_last_prompt_context
+                    prompt_context = get_last_prompt_context()
+                    if prompt_context:
+                        logger.info("=== PROMPT CONTEXT DEBUG ===")
+                        system_prompt, anthropic_messages = prompt_context.compose_for_anthropic()
+                        logger.info(f"SYSTEM PROMPT: {system_prompt[:500]}...")
+                        for i, msg in enumerate(anthropic_messages):
+                            logger.info(f"PROMPT PART {i+1} [{msg['role'].upper()}]: {msg['content'][:500]}...")
+                        logger.info("=== END PROMPT CONTEXT DEBUG ===")
+                    else:
+                        logger.info("No prompt context available for debugging")
+                
+                model_choice_idx = llm_response_model.index
+                model_explanation = llm_response_model.reasoning
+                is_correct = (model_choice_idx == correct_choice_index)
+                
+                # Track retry statistics
+                total_retries += llm_response_model.retry_count
+                if llm_response_model.failed_after_retries:
+                    final_failures += 1
+                
+                if is_correct:
+                    correct_answers_count += 1
+                
+                # Capture retrieval debug info and timing from the SDK
+                retrieval_debug = get_retrieval_debug_info(llm_provider)
+                retrieval_timing = get_retrieval_timing_info(llm_provider)
+                
+                retrieved_memories_count = 0
+                query_duration = retrieval_timing or 0.0
+                all_query_times.append(query_duration)
+                
+                if retrieval_debug:
+                    results = retrieval_debug.get("data", {}).get("results", [])
+                    retrieved_memories_count = len(results)
+                    logger.info(f"MemFuse query for Q{question_number} took {query_duration * 1000:.2f} ms, retrieved {retrieved_memories_count} memories.")
+                    
+                    # Log failed questions with memory details
+                    if not is_correct and results:
+                        retrieved_memories_summary = []
+                        for result in results[:3]:  # Show first 3 for brevity
+                            content = result.get("content", "")[:100]  # Truncate long content
+                            score = result.get("score", 0)
+                            retrieved_memories_summary.append(f"Score:{score:.3f} Content:{content}...")
+                        logger.info(f"Q{question_number} FAILED - Retrieved memories: {retrieved_memories_summary}")
+                    elif not is_correct:
+                        logger.info(f"Q{question_number} FAILED - No memories retrieved")
+                else:
+                    logger.warning(f"No retrieval debug info available for Q{question_number}")
+                
+                logger.info(f"--- Q{question_number} RESULT ---")
+                logger.info(f"Question: {question_text}")
+                logger.info(f"LLM's Choice: {model_choice_idx} ('{choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index'}')")
+                logger.info(f"Correct Choice: {correct_choice_index} ('{choices[correct_choice_index]}')")
+                logger.info(f"Result: {'✅ CORRECT' if is_correct else '❌ INCORRECT'}")
+                logger.info(f"LLM's Explanation: {model_explanation}")
+                
+                results_summary.append({
+                    "question_id": question_id,
+                    "question_text": question_text,
+                    "model_choice_idx": model_choice_idx,
+                    "model_choice_text": choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index',
+                    "correct_choice_idx": correct_choice_index,
+                    "correct_choice_text": choices[correct_choice_index],
+                    "is_correct": is_correct,
+                    "explanation": model_explanation,
+                    "top_k": top_k,
+                    "retrieval_time_ms": query_duration * 1000,
+                    "retry_count": llm_response_model.retry_count,
+                    "failed_after_retries": llm_response_model.failed_after_retries,
+                    "retrieved_memories_count": retrieved_memories_count,
+                    "retrieval_debug_available": retrieval_debug is not None,
+                })
+                
+            except ConnectionError as e:
+                error_msg = f"Connection error with MemFuse server for Q{question_number} (ID: {question_id}): {e}"
+                logger.error(error_msg)
+                results_summary.append({
+                    "question_id": question_id,
+                    "question_text": question_text,
+                    "status": f"FAILED - ConnectionError: {e}"
+                })
+            except Exception as e:
+                error_msg = f"Unexpected error for Q{question_number} (ID: {question_id}): {e}"
+                logger.error(error_msg, exc_info=True)
+                results_summary.append({
+                    "question_id": question_id,
+                    "question_text": question_text,
+                    "status": f"FAILED - Exception: {e}"
+                })
+        
+        # Calculate total elapsed time
+        total_end_time = time.perf_counter()
+        total_elapsed_time = total_end_time - total_start_time
+        
+        # Save raw results
+        recorder.record_raw_results(results_summary)
+        
+        # Calculate and save summary
+        valid_results = [item for item in results_summary if 'is_correct' in item]
+        correct_count = sum(1 for item in valid_results if item.get('is_correct'))
+        accuracy = (correct_count / len(valid_results)) * 100 if len(valid_results) > 0 else 0
+        # Convert query times to milliseconds to match the expected format for summary
+        all_query_times_ms = [t * 1000 for t in all_query_times]
+        recorder.record_summary(all_query_times_ms, accuracy)
+        
+        # Display the overall summary with percentiles
+        if all_query_times:
+            p50_time = np.percentile(all_query_times, 50)
+            p90_time = np.percentile(all_query_times, 90)
+            p95_time = np.percentile(all_query_times, 95)
+            
+            logger.info(f"P50 Query Time: {p50_time * 1000:.2f}ms, P90 Query Time: {p90_time * 1000:.2f}ms, P95 Query Time: {p95_time * 1000:.2f}ms")
+        
+        # Log retry statistics
+        logger.info(f"Total retries: {total_retries}")
+        logger.info(f"Final failures after all retries: {final_failures}")
         
         return BenchmarkResults(
             question_results=results_summary,
