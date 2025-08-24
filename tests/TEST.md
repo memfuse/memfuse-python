@@ -10,7 +10,7 @@ This document defines a comprehensive testing strategy for a Python SDK, organiz
 
 1. **Use only pytest** - Never use unittest
 2. **Configure pytest using `pytest.ini`** - Do not use pyproject.toml for pytest configuration
-3. **Single test runner script** - Use `script/run_tests.py` as the single entry point for all tests
+3. **Single test runner script** - Use `scripts/run_tests.py` as the single entry point for all tests
 4. **Layer-based execution** - Run tests layer by layer with short-circuit on failure
 5. **Clear test organization** - Use descriptive test file names following pattern: `test_<layer>_<component>.py`
 
@@ -18,7 +18,7 @@ This document defines a comprehensive testing strategy for a Python SDK, organiz
 
 ```
 project/
-├── script/
+├── scripts/
 │   └── run_tests.py          # Single test runner
 ├── tests/
 │   ├── conftest.py           # Shared fixtures and configuration
@@ -27,10 +27,69 @@ project/
 │   ├── error_handling/       # Layer 3
 │   ├── integration/          # Layer 4
 │   ├── dx/                   # Layer 5
-│   └── e2e/                  # Layer 6
+│   ├── e2e/                  # Layer 6
+│   ├── benchmarks/           # Layer 7
+│   ├── archive/              # Legacy tests
+│   └── utils/                # Test utilities
 ├── pytest.ini                # Pytest configuration
 └── src/                      # SDK source code
 ```
+
+## How to Run Tests
+
+### 1. Run All Tests of All Layers
+
+```bash
+poetry run python scripts/run_tests.py
+```
+
+This runs all layers in sequence: smoke → unit → error_handling → integration → dx → e2e → benchmarks
+
+### 2. Run Specific Layer
+
+```bash
+poetry run python scripts/run_tests.py --layer <layer_name>
+```
+
+**Available layers:**
+- `poetry run python scripts/run_tests.py --layer smoke`
+- `poetry run python scripts/run_tests.py --layer unit`
+- `poetry run python scripts/run_tests.py --layer error_handling`
+- `poetry run python scripts/run_tests.py --layer integration`
+- `poetry run python scripts/run_tests.py --layer dx`
+- `poetry run python scripts/run_tests.py --layer e2e`
+- `poetry run python scripts/run_tests.py --layer benchmarks`
+
+### 3. Run Tests Up to a Specific Layer
+
+**This feature is not currently implemented** in the test runner. The script only supports:
+- All layers (default behavior)
+- Single specific layer (`--layer`)
+
+If you need to run tests up to a specific layer, you'd need to either:
+1. Modify the script to add a `--stop-at` parameter
+2. Run layers individually in sequence until your target layer
+
+### Useful Additional Options
+
+```bash
+# List available layers and their status
+poetry run python scripts/run_tests.py --list
+
+# Run with verbose output
+poetry run python scripts/run_tests.py --layer e2e --verbose
+
+# Hide test output (capture stdout/stderr)
+poetry run python scripts/run_tests.py --layer e2e --hide-output
+
+# Run specific test file directly
+poetry run pytest tests/smoke/test_smoke_basic.py -v
+
+# Run specific test function
+poetry run pytest tests/e2e/test_e2e_memory_followup.py::test_memory_followup_includes_mars_reference -v -s
+```
+
+**Note**: The "run up to specific layer" functionality would be a useful enhancement to add to the test runner script.
 
 ## Testing Layers
 
@@ -185,13 +244,13 @@ The e2e layer includes comprehensive tests that validate MemFuse's conversationa
 **All E2E tests**:
 
 ```bash
-poetry run script/run_tests.py --layer e2e
+poetry run python scripts/run_tests.py --layer e2e
 ```
 
-**With output logging** (to see RAGAS scores and debug info):
+**Without output logging** (to hide RAGAS scores and debug info):
 
 ```bash
-poetry run script/run_tests.py --layer e2e --show-output
+poetry run python scripts/run_tests.py --layer e2e --hide-output
 ```
 
 **Individual test**:
@@ -215,6 +274,30 @@ E2E tests use additional dev dependencies for enhanced verification:
 - `langchain-ollama ^0.2.0` - For local embeddings (avoids OpenAI API costs)
 
 **Configuration**: Tests are automatically skipped when required environment variables are missing or server is unavailable
+
+### Layer 7: Benchmark Tests
+
+**Purpose**: Performance testing and accuracy metrics
+
+#### Current Benchmark Test Suite
+
+The benchmarks layer includes tests that validate MemFuse's performance and accuracy:
+
+**MSC Accuracy Test** (`test_msc_accuracy.py`)
+
+- Tests memory accuracy using Multi-Session Chat (MSC) evaluation
+- Validates retrieval quality and conversational memory performance
+
+**Retrieval Metrics Test** (`test_retrieval_metrics.py`)
+
+- Tests retrieval system metrics and debugging capabilities
+- Validates memory storage and retrieval accuracy
+
+#### Running Benchmark Tests
+
+```bash
+poetry run python scripts/run_tests.py --layer benchmarks
+```
 
 ## Test Implementation Guidelines
 
@@ -269,7 +352,7 @@ mock_session.request.assert_called_once_with(
 ## Run Test Script Structure
 
 ```python
-# script/run_tests.py
+# scripts/run_tests.py
 #!/usr/bin/env python3
 import sys
 import subprocess
@@ -281,7 +364,8 @@ LAYERS = [
     ("error_handling", "tests/error_handling"),
     ("integration", "tests/integration"),
     ("dx", "tests/dx"),
-    ("e2e", "tests/e2e")
+    ("e2e", "tests/e2e"),
+    ("benchmarks", "tests/benchmarks")
 ]
 
 def run_layer(name, path):
@@ -356,11 +440,8 @@ addopts =
     -ra
     --strict-markers
     --strict-config
-    --cov=src
-    --cov-branch
-    --cov-report=term-missing:skip-covered
-    --cov-report=html
-    --cov-report=xml
+    --tb=short
+    -v
 
 # Markers
 markers =
@@ -368,21 +449,24 @@ markers =
     unit: Unit tests with mocked dependencies
     integration: Integration tests with mocked HTTP
     e2e: End-to-end tests requiring real server
+    benchmarks: Performance and benchmark tests
     slow: Tests that take significant time
     asyncio: Async tests
 
-# Async configuration
+# Async configuration (requires pytest-asyncio)
 asyncio_mode = auto
+asyncio_default_fixture_loop_scope = function
 
-# Timeout
-timeout = 30
-timeout_method = thread
+# Timeout (commented out as it requires pytest-timeout)
+# timeout = 30
+# timeout_method = thread
 
 # Warnings
 filterwarnings =
     error
     ignore::DeprecationWarning
     ignore::PendingDeprecationWarning
+    ignore::pytest.PytestUnraisableExceptionWarning
 ```
 
 ## Additional Considerations
