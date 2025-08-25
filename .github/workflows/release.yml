@@ -2,6 +2,8 @@ name: Release
 
 on:
   push:
+    branches:
+      - 'feat/release-automation'
     tags:
       - 'v*'
   workflow_dispatch:
