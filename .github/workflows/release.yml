@@ -3,7 +3,8 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*-rc*'   # RC versions (e.g., v0.3.1-rc1) → Production PyPI
+      - 'v*'       # Final versions (e.g., v0.3.1) → Test PyPI first, then manual production
   workflow_dispatch:
     inputs:
       environment:
@@ -62,7 +63,7 @@ jobs:
   deploy-test:
     needs: build
     runs-on: ubuntu-latest
-    if: (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'test') || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    if: (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'test') || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc'))
     environment: test-pypi
     permissions:
       id-token: write
@@ -86,9 +87,9 @@ jobs:
         python -c "import memfuse; print(f'Installed version: {memfuse.__version__}')"
 
   deploy-production:
-    needs: [build, deploy-test]
+    needs: [build]
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    if: (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production') || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-rc'))
     environment: production-pypi
     permissions:
       id-token: write
