@@ -4,6 +4,8 @@ import os
 from loguru import logger
 import asyncio
 import argparse
+import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 import plotext as plt
@@ -50,6 +52,120 @@ DATASET_CONFIGS = {
 }
 
 
+def save_individual_results(results, dataset_name: str, llm_provider: str):
+    """Save detailed individual results to a file for analysis."""
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"individual_results_{dataset_name}_{llm_provider}_{timestamp}.txt"
+    results_dir = os.path.join(os.path.dirname(__file__), 'results')
+    filepath = os.path.join(results_dir, filename)
+    
+    # Ensure directory exists
+    os.makedirs(results_dir, exist_ok=True)
+    
+    logger.info(f"Individual results saved to: {filepath}")
+    
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f"📋 Individual Results - {dataset_name.upper()} Dataset\n")
+            f.write(f"🤖 LLM Provider: {llm_provider}\n")
+            f.write(f"📅 Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            for i, result in enumerate(results.question_results, 1):
+                if 'is_correct' not in result:
+                    # Handle failed results
+                    question_id = result.get('question_id', f'Q{i}')
+                    status = result.get('status', 'FAILED - Unknown error')
+                    f.write(f"Q{i}: {question_id} - ❌ {status}\n\n")
+                    continue
+                    
+                # Extract basic info
+                question_id = result.get('question_id', f'Q{i}')
+                question_text = result.get('question_text', 'Unknown question')
+                is_correct = result.get('is_correct', False)
+                model_choice = result.get('model_choice_idx', 'Unknown')
+                model_choice_text = result.get('model_choice_text', 'Unknown')
+                correct_choice = result.get('correct_choice_idx', 'Unknown')
+                correct_choice_text = result.get('correct_choice_text', 'Unknown')
+                explanation = result.get('explanation', 'No explanation provided')
+                retrieval_time = result.get('retrieval_time_ms', 0)
+                
+                # Retrieval metrics (enhanced or legacy)
+                precision = result.get('precision', 0.0)
+                recall = result.get('recall', 0.0)
+                f1 = result.get('f1', 0.0)
+                
+                # Enhanced metrics if available
+                flagged_hits = result.get('flagged_hits')
+                substring_hits = result.get('substring_hits') 
+                total_hits = result.get('total_hits')
+                flagged_messages_count = result.get('flagged_messages_count')
+                substring_messages_count = result.get('substring_messages_count')
+                total_answer_content_count = result.get('total_answer_content_count')
+                retrieved_memories_count = result.get('retrieved_memories_count', 0)
+                
+                # Legacy metrics for comparison
+                legacy_precision = result.get('legacy_precision')
+                legacy_recall = result.get('legacy_recall')
+                legacy_f1 = result.get('legacy_f1')
+                
+                status = "✅ CORRECT" if is_correct else "❌ INCORRECT"
+                
+                f.write(f"Q{i}: {question_id} - {status}\n")
+                f.write("-" * 60 + "\n")
+                f.write(f"Question: {question_text}\n")
+                f.write(f"Model Choice: {model_choice} ('{model_choice_text}')\n")
+                f.write(f"Correct Choice: {correct_choice} ('{correct_choice_text}')\n")
+                f.write(f"Explanation: {explanation}\n")
+                f.write(f"Retrieval Time: {retrieval_time:.2f}ms\n\n")
+                
+                # Enhanced retrieval metrics
+                if total_answer_content_count is not None:
+                    f.write("🎯 ENHANCED RETRIEVAL METRICS:\n")
+                    f.write(f"  Precision: {precision:.3f} ({total_hits}/{retrieved_memories_count} memories useful)\n")
+                    f.write(f"  Recall: {recall:.3f} ({total_hits}/{total_answer_content_count} answer content found)\n")
+                    f.write(f"  F1: {f1:.3f}\n")
+                    f.write(f"  \n")
+                    f.write(f"  📊 Breakdown:\n")
+                    f.write(f"    Flagged hits: {flagged_hits}/{flagged_messages_count} (has_answer=True messages)\n")
+                    f.write(f"    Substring hits: {substring_hits}/{substring_messages_count} (other content with answer)\n")
+                    f.write(f"    Total hits: {total_hits}/{total_answer_content_count}\n")
+                    f.write(f"    Retrieved memories: {retrieved_memories_count}\n\n")
+                    
+                    # Legacy comparison if available
+                    if legacy_precision is not None:
+                        f.write("📊 LEGACY METRICS (for comparison):\n")
+                        f.write(f"  Legacy Precision: {legacy_precision:.3f}\n")
+                        f.write(f"  Legacy Recall: {legacy_recall:.3f}\n")
+                        f.write(f"  Legacy F1: {legacy_f1:.3f}\n\n")
+                else:
+                    # Fallback to basic metrics
+                    f.write("🎯 RETRIEVAL METRICS:\n")
+                    f.write(f"  Precision: {precision:.3f}\n")
+                    f.write(f"  Recall: {recall:.3f}\n")
+                    f.write(f"  F1: {f1:.3f}\n")
+                    f.write(f"  Retrieved memories: {retrieved_memories_count}\n\n")
+                    
+                f.write("=" * 80 + "\n\n")
+            
+            # Summary
+            f.write("📈 SUMMARY\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"Total questions: {results.total_count}\n")
+            f.write(f"Successful evaluations: {results.success_count}\n")
+            f.write(f"Accuracy: {results.accuracy:.1f}%\n")
+            f.write(f"Total time: {results.total_elapsed_time:.2f}s\n")
+            
+            if results.retrieval_metrics_available:
+                f.write(f"\n🎯 AVERAGE RETRIEVAL METRICS:\n")
+                f.write(f"Average Precision: {results.avg_precision:.3f}\n")
+                f.write(f"Average Recall: {results.avg_recall:.3f}\n")
+                f.write(f"Average F1: {results.avg_f1:.3f}\n")
+                
+    except Exception as e:
+        logger.error(f"Failed to write individual results to file: {e}")
+
+
 def print_benchmark_summary(results, dataset_name):
     """Print detailed benchmark summary with histogram visualization."""
     
@@ -89,6 +205,9 @@ def print_benchmark_summary(results, dataset_name):
                 print(f"     Model: {result.get('model_choice_idx')} | Correct: {result.get('correct_choice_idx')}")
                 if 'retrieval_time_ms' in result:
                     print(f"     Retrieval: {result['retrieval_time_ms']:.2f}ms")
+                # Show retrieval metrics for LME dataset
+                if dataset_name == "lme" and 'precision' in result:
+                    print(f"     Retrieval Metrics - P: {result['precision']:.3f}, R: {result['recall']:.3f}, F1: {result['f1']:.3f}")
             else:
                 print(f"Q{i+1}: {result.get('question_id', 'N/A')} - ⚠️ {result.get('status', 'UNKNOWN')}")
     
@@ -109,6 +228,13 @@ def print_benchmark_summary(results, dataset_name):
         print("✅ All questions evaluated successfully!")
     else:
         print(f"⚠️  {results.total_count - results.success_count} questions failed evaluation")
+    
+    # Retrieval evaluation metrics (LME only)
+    if results.retrieval_metrics_available and dataset_name == "lme":
+        print(f"\n🎯 RETRIEVAL EVALUATION METRICS:")
+        print(f"   Average Precision: {results.avg_precision:.3f}")
+        print(f"   Average Recall: {results.avg_recall:.3f}")
+        print(f"   Average F1 Score: {results.avg_f1:.3f}")
     
     # Show incorrect question IDs if any
     if incorrect_question_ids:
@@ -248,6 +374,9 @@ async def main():
         skip_data_loading=args.no_data_loading,
         logger=logger
     )
+    
+    # Save individual results to file
+    save_individual_results(results, args.dataset, args.llm_provider)
     
     # Print detailed benchmark summary with visualization
     print_benchmark_summary(results, args.dataset)
