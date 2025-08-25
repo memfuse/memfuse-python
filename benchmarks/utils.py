@@ -813,9 +813,6 @@ class BenchmarkResults:
 
 async def _evaluate_single_question(
         semaphore: asyncio.Semaphore,
-        llm_call_semaphore: asyncio.Semaphore,
-        llm_call_counter: Dict[str, int],
-        llm_timing_lock: asyncio.Lock,
         memfuse_client,
         data_sample: Dict[str, Any],
         question_number: int,
@@ -823,7 +820,6 @@ async def _evaluate_single_question(
         top_k: int,
         model_name: str,
         llm_provider: str,
-        concurrent_delay: float,
         logger: logging.Logger
     ) -> Dict[str, Any]:
     """Evaluate a single question with concurrency control."""
@@ -863,29 +859,16 @@ async def _evaluate_single_question(
                 formatted_question += f"{i}. {choice}\n"
 
             # Call LLM with MemFuse integration (SDK handles memory retrieval automatically)
-            # Use controlled concurrency with staggered delays
-            async with llm_call_semaphore:
-                # Calculate delay based on call order to stagger LLM calls
-                async with llm_timing_lock:
-                    call_order = llm_call_counter["count"]
-                    llm_call_counter["count"] += 1
-                    delay_time = call_order * concurrent_delay
-
-                # Apply staggered delay before making the LLM call
-                if delay_time > 0:
-                    logger.info(f"Delaying Q{question_number} LLM call by {delay_time:.1f}s...")
-                    await asyncio.sleep(delay_time)
-
-                logger.info(f"Calling MemFuse {llm_provider} for Q{question_number}...")
-                llm_response_model = await _call_memfuse(
-                    query=formatted_question,
-                    choices_length=len(choices),
-                    model_name=model_name,
-                    memory_instance=query_memory_instance,
-                    llm_provider=llm_provider,
-                    max_retries=20,
-                    logger=logger
-                )
+            logger.info(f"Calling MemFuse {llm_provider} for Q{question_number}...")
+            llm_response_model = await _call_memfuse(
+                query=formatted_question,
+                choices_length=len(choices),
+                model_name=model_name,
+                memory_instance=query_memory_instance,
+                llm_provider=llm_provider,
+                max_retries=20,
+                logger=logger
+            )
 
             model_choice_idx = llm_response_model.index
             model_explanation = llm_response_model.reasoning
@@ -969,7 +952,6 @@ async def run_benchmark_evaluation(
         model_name: str = "deepseek-ai/DeepSeek-V3.1",
         llm_provider: str = "openai",
         concurrent: int = 1,
-        concurrent_delay: float = 0.1,
         logger: Optional[logging.Logger] = None
     ) -> BenchmarkResults:
     """Run benchmark evaluation on a dataset.
@@ -981,7 +963,6 @@ async def run_benchmark_evaluation(
         model_name: LLM model to use for evaluation
         llm_provider: LLM provider to use ("gemini", "openai", "anthropic")
         concurrent: Number of concurrent evaluations to run (default: 1)
-        concurrent_delay: Delay in seconds between starting concurrent tasks (default: 0.1)
         logger: Logger instance
 
     Returns:
@@ -1008,23 +989,13 @@ async def run_benchmark_evaluation(
     async with AsyncMemFuse() as memfuse_client:
         # Create semaphore to control concurrency
         semaphore = asyncio.Semaphore(concurrent)
-        # Allow concurrent LLM calls but with controlled spacing
-        # This allows true parallelism while avoiding server overload
-        llm_call_semaphore = asyncio.Semaphore(concurrent)
 
-        # Create a shared counter and lock for LLM call timing
-        llm_call_counter = {"count": 0}
-        llm_timing_lock = asyncio.Lock()
-
-        # Create tasks for concurrent evaluation with staggered start times
+        # Create tasks for concurrent evaluation
         tasks = []
         for i, data_sample in enumerate(dataset):
             question_number = i + 1
             task = _evaluate_single_question(
                 semaphore=semaphore,
-                llm_call_semaphore=llm_call_semaphore,
-                llm_call_counter=llm_call_counter,
-                llm_timing_lock=llm_timing_lock,
                 memfuse_client=memfuse_client,
                 data_sample=data_sample,
                 question_number=question_number,
@@ -1032,29 +1003,15 @@ async def run_benchmark_evaluation(
                 top_k=top_k,
                 model_name=model_name,
                 llm_provider=llm_provider,
-                concurrent_delay=concurrent_delay,
                 logger=logger
             )
             tasks.append(task)
 
-        # Execute all tasks with staggered start times
+        # Execute all tasks concurrently
         logger.info(f"Executing {len(tasks)} evaluation tasks with "
-                    f"concurrency limit of {concurrent} and {concurrent_delay}s delay...")
+                    f"concurrency limit of {concurrent}...")
 
-        # Start tasks with delays to implement pseudo-concurrent execution
-        async def start_task_with_delay(task, delay):
-            if delay > 0:
-                await asyncio.sleep(delay)
-            return await task
-
-        # Create delayed tasks
-        delayed_tasks = []
-        for i, task in enumerate(tasks):
-            delay = (i % concurrent) * concurrent_delay
-            delayed_task = start_task_with_delay(task, delay)
-            delayed_tasks.append(delayed_task)
-
-        results_list = await asyncio.gather(*delayed_tasks, return_exceptions=True)
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results
         results_summary = []
@@ -1501,7 +1458,6 @@ async def run_question_by_question_evaluation(
         llm_provider: str = "openai",
         skip_data_loading: bool = False,
         concurrent: int = 1,
-        concurrent_delay: float = 0.1,
         logger: Optional[logging.Logger] = None
     ) -> BenchmarkResults:
     """Run benchmark evaluation with question-by-question data loading and testing.

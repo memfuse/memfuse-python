@@ -296,8 +296,6 @@ async def main():
                         help="Skip loading haystack data per question (assumes data already loaded)")
     parser.add_argument("--concurrent", type=int, default=1,
                         help="Number of concurrent evaluations (default: 1)")
-    parser.add_argument("--concurrent-delay", type=float, default=0.1,
-                        help="Delay in seconds between starting concurrent tasks (default: 0.1)")
     
     args = parser.parse_args()
     
@@ -377,7 +375,6 @@ async def main():
         llm_provider=args.llm_provider,
         skip_data_loading=args.no_data_loading,
         concurrent=args.concurrent,
-        concurrent_delay=args.concurrent_delay,
         logger=logger
     )
     
