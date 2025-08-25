@@ -2,8 +2,6 @@ name: Release
 
 on:
   push:
-    branches:
-      - 'feat/release-automation'  # temporary for testing
     tags:
       - 'v*'
   workflow_dispatch:
@@ -109,6 +107,8 @@ jobs:
     needs: [build, deploy-production]
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    permissions:
+      contents: write
     steps:
     - uses: actions/checkout@v4
 
@@ -126,12 +126,10 @@ jobs:
         cat changelog.md
 
     - name: Create GitHub Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ github.ref_name }}
-        release_name: Release ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
         body_path: changelog.md
         draft: false
         prerelease: false
