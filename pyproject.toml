@@ -34,6 +34,7 @@ google-genai = "^1.16.1"
 ollama = "^0.4.8"
 gradio = "^5.30.0"
 python-dotenv = "^1.1.0"
+loguru = "^0.7.3"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -45,6 +46,11 @@ datasets = "^3.6.0"
 colorlog = "^6.9.0"
 twine = "^6.1.0"
 poetry-dynamic-versioning = "^1.8.2"
+pytest-asyncio = "^1.0.0"
+ragas = "^0.2.0"
+langchain-ollama = "^0.2.0"
+litellm = "^1.53.0"
+plotext = "^5.2.8"
 
 [build-system]
 requires = ["poetry-core", "poetry-dynamic-versioning"]

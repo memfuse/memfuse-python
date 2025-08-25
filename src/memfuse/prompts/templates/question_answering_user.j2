@@ -1,0 +1,31 @@
+---
+description: A template for answering a multiple-choice question based on memory context
+author: Calvin
+version: 1.2
+---
+
+<main_context>
+{{ formatted_context }}
+</main_context>
+
+<question>
+{{ question }}
+</question>
+
+<choices>
+{{ formatted_choices }}
+</choices>
+
+<instructions>
+1. Choose the answer that is most directly supported by the memory context.
+2. If multiple answers seem plausible, select the one with the strongest evidence in the context.
+3. Ignore any prior knowledge you have about the topic - rely ONLY on the provided memory context.
+4. Return your answer as a JSON object with three fields:
+   - "index": the index of your chosen answer (0-based integer)
+   - "reasoning": a brief explanation that cites specific evidence from the memory context
+   - "description": a short description of what was discussed in the conversation that led to this answer
+</instructions>
+
+<response_format>
+Your response should be valid JSON that can be parsed by a computer.
+</response_format>

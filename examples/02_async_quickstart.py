@@ -96,19 +96,17 @@ async def main_with_context_manager():
     async with AsyncMemFuse() as memfuse:
         memory = await memfuse.init(user="bob", session="async_demo")
         
-        # Example with async context manager for memory as well
-        async with memory:
-            # Add a quick message
-            await memory.add([
-                {"role": "user", "content": "Hello from async context manager!"},
-                {"role": "assistant", "content": "Hello! I'm running in an async context manager, which ensures proper cleanup."}
-            ])
-            
-            # Query the memory
-            result = await memory.query("context manager", top_k=2)
-            if result.get("status") == "success":
-                results_count = len(result.get("data", {}).get("results", []))
-                print(f"✓ Context manager query returned {results_count} results")
+        # Add a quick message directly (no need for memory context manager)
+        await memory.add([
+            {"role": "user", "content": "Hello from async context manager!"},
+            {"role": "assistant", "content": "Hello! I'm running with proper resource management."}
+        ])
+        
+        # Query the memory
+        result = await memory.query("context manager", top_k=2)
+        if result.get("status") == "success":
+            results_count = len(result.get("data", {}).get("results", []))
+            print(f"✓ Memory query returned {results_count} results")
     
     print("✅ Async context manager automatically closed all resources")
 

@@ -1,8 +1,10 @@
 # src/memfuse/llm/gemini_adapter.py
 from __future__ import annotations
-from typing import Any, Callable, List, Dict, Union, cast, Coroutine
+from typing import Any, Callable, List, Dict, Union, cast, Coroutine, Optional
 import inspect, functools
 import logging
+import contextvars
+import time
 
 from google import genai
 from google.genai import types # types.Content, types.Part, types.GenerateContentResponse
@@ -14,6 +16,11 @@ from memfuse.prompts import PromptContext, PromptFormatter
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
+
+# Context variables to capture query responses, timing, and prompt context for debugging (invisible to SDK users)
+_debug_query_response: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar('debug_query_response', default=None)
+_debug_query_time: contextvars.ContextVar[Optional[float]] = contextvars.ContextVar('debug_query_time', default=None)
+_debug_prompt_context: contextvars.ContextVar[Optional[PromptContext]] = contextvars.ContextVar('debug_prompt_context', default=None)
 
 # Type aliases for clarity, based on google.genai.types
 ContentDict = Dict[str, Any] # Represents types.Content or similar structure for internal processing
@@ -154,12 +161,35 @@ def _instrument_generate_content_sync(
         else:
             in_db_chat_history = []
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # Retrieve memories
         query_string = PromptFormatter.messages_to_query(chat_history + gemini_query_messages)
+        
+        # Measure query time
+        query_start_time = time.perf_counter()
         query_response = memory.query_session(query_string)
+        query_end_time = time.perf_counter()
+        query_duration = query_end_time - query_start_time
+        
+        # Store query response and timing for debugging access (invisible to normal users)
+        _debug_query_response.set(query_response)
+        _debug_query_time.set(query_duration)
+        
         retrieved_memories = query_response["data"]["results"] if query_response else None
+        
+        logger.info(f"Query took {query_duration * 1000:.2f} ms")
 
         logger.info(f"Retrieved memories: {retrieved_memories}")
 
@@ -171,8 +201,17 @@ def _instrument_generate_content_sync(
         max_chat_history=memory.max_chat_history,
     )
     
+    # Store prompt context for debugging access (invisible to normal users)
+    _debug_prompt_context.set(prompt_context)
+    logger.info(f"Stored prompt context in ContextVar: {prompt_context}")
+    
     # PromptFormatter composes the full prompt, including history, query, memories.
     full_structured_prompt_parts: List[Dict[str, str]] = prompt_context.compose_for_gemini()
+    logger.info(f"Composed prompt parts: {len(full_structured_prompt_parts)} parts")
+    
+    # Debug: Log the actual prompt being sent
+    for i, part in enumerate(full_structured_prompt_parts):
+        logger.info(f"PROMPT PART {i+1} [{part['role'].upper()}]: {part['content'][:1000]}...")
 
     # 4. Convert to SDK's List[types.Content]
     final_contents_for_sdk = _prepare_contents_for_sdk(full_structured_prompt_parts)
@@ -225,12 +264,35 @@ async def _instrument_generate_content_async(
         else:
             in_db_chat_history = []
 
-        retrieved_chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        retrieved_chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # Retrieve memories
         query_string = PromptFormatter.messages_to_query(retrieved_chat_history + gemini_query_messages)
+        
+        # Measure query time
+        query_start_time = time.perf_counter()
         query_response = await memory.query_session(query_string)
+        query_end_time = time.perf_counter()
+        query_duration = query_end_time - query_start_time
+        
+        # Store query response and timing for debugging access (invisible to normal users)
+        _debug_query_response.set(query_response)
+        _debug_query_time.set(query_duration)
+        
         retrieved_memories = query_response["data"]["results"] if query_response else None
+        
+        logger.info(f"Query took {query_duration * 1000:.2f} ms")
 
         logger.info(f"Retrieved memories: {retrieved_memories}")
 
@@ -242,8 +304,17 @@ async def _instrument_generate_content_async(
         max_chat_history=memory.max_chat_history,
     )
     
+    # Store prompt context for debugging access (invisible to normal users)
+    _debug_prompt_context.set(prompt_context)
+    logger.info(f"Stored prompt context in ContextVar: {prompt_context}")
+    
     # PromptFormatter composes the full prompt, including history, query, memories.
     full_structured_prompt_parts: List[Dict[str, str]] = prompt_context.compose_for_gemini()
+    logger.info(f"Composed prompt parts: {len(full_structured_prompt_parts)} parts")
+    
+    # Debug: Log the actual prompt being sent
+    for i, part in enumerate(full_structured_prompt_parts):
+        logger.info(f"PROMPT PART {i+1} [{part['role'].upper()}]: {part['content'][:1000]}...")
 
     # 4. Convert to SDK's List[types.Content]
     final_contents_for_sdk = _prepare_contents_for_sdk(full_structured_prompt_parts)
@@ -504,4 +575,56 @@ class AsyncMemorableGoogleGenerativeAI:
 
 # Old classes and wrappers are now removed / replaced by the client-centric approach.
 # MemGenerativeModel, AsyncMemGenerativeModel
-# _wrap_gemini_generate_content, _wrap_gemini_async_generate_content 
+# _wrap_gemini_generate_content, _wrap_gemini_async_generate_content
+
+
+# Debug utilities (for benchmarks and debugging)
+def get_last_query_response() -> Optional[Dict[str, Any]]:
+    """
+    Get the last query response for debugging purposes.
+    
+    This function allows access to the intermediate query response from memory.query_session()
+    that occurs within _instrument_generate_content_async/sync. This is useful for benchmarks
+    and debugging to inspect what memories were retrieved.
+    
+    Returns:
+        The last query response dict if available, None otherwise.
+        
+    Note:
+        This is intended for debugging/benchmarking use only and should not be used
+        in production code as it relies on internal implementation details.
+    """
+    return _debug_query_response.get(None)
+
+
+def get_last_query_time() -> Optional[float]:
+    """
+    Get the last query timing for debugging purposes.
+    
+    Returns:
+        The last query duration in seconds if available, None otherwise.
+        
+    Note:
+        This is intended for debugging/benchmarking use only and should not be used
+        in production code as it relies on internal implementation details.
+    """
+    return _debug_query_time.get(None)
+
+
+def get_last_prompt_context() -> Optional[PromptContext]:
+    """
+    Get the last prompt context for debugging purposes.
+    
+    This function allows access to the PromptContext object that was used to compose
+    the final prompt sent to the LLM. This is useful for debugging prompt composition.
+    
+    Returns:
+        The last PromptContext object if available, None otherwise.
+        
+    Note:
+        This is intended for debugging/benchmarking use only and should not be used
+        in production code as it relies on internal implementation details.
+    """
+    context = _debug_prompt_context.get(None)
+    logger.info(f"Retrieved prompt context from ContextVar: {context}")
+    return context 

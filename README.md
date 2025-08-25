@@ -55,6 +55,13 @@ When the context window reaches its limit, previous conversations, user preferen
 
 This repository contains the official Python SDK for seamless integration with MemFuse servers. For comprehensive information about the MemFuse server architecture and advanced features, please visit the [MemFuse Server repository](https://github.com/memfuse/memfuse).
 
+## Recent Updates
+
+- **Enhanced Testing:** Comprehensive E2E testing with semantic memory validation
+- **Better Error Handling:** Improved error messages and logging for easier debugging  
+- **Prompt Templates:** Structured prompt management system for consistent LLM interactions
+- **Performance Benchmarks:** MSC dataset accuracy testing with 95% validation threshold
+
 ## Installation
 
 > **Note:** This is the standalone Client SDK repository. If you need to install and run the MemFuse server, which is essential to use the SDK, please visit the [MemFuse Server repository](https://github.com/memfuse/memfuse).
@@ -128,6 +135,22 @@ print(f"Follow-up: {followup_response.choices[0].message.content}")
 ```
 
 MemFuse automatically manages the retrieval of relevant information and storage of new memories from conversations within the specified `memory` scope.
+
+## Advanced Features
+
+### Memory Validation & Testing
+The SDK includes comprehensive testing capabilities to validate memory accuracy:
+
+- **E2E Memory Tests:** Automated tests that verify conversational context retention
+- **Semantic Similarity Validation:** Uses RAGAS framework for intelligent response verification
+- **Performance Benchmarks:** MSC (Multi-Session Chat) dataset testing with accuracy metrics
+
+### Error Handling & Debugging
+Enhanced error messages provide clear guidance:
+
+- **Connection Issues:** Helpful instructions for starting the MemFuse server
+- **API Errors:** Detailed error responses with actionable information
+- **Logging:** Comprehensive logging for troubleshooting and monitoring
 
 ## Examples
 

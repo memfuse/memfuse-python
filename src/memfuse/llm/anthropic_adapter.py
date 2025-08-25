@@ -1,8 +1,10 @@
 # src/memfuse/llm/anthropic_adapter.py
 from __future__ import annotations
-from typing import Any, Dict, List, Callable
+from typing import Any, Dict, List, Callable, Optional
 import inspect, functools
 import logging
+import contextvars
+import time
 
 from anthropic import Anthropic, AsyncAnthropic
 
@@ -11,6 +13,11 @@ from memfuse.prompts import PromptContext, PromptFormatter
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
+
+# Context variables to capture query responses, timing, and prompt context for debugging (invisible to SDK users)
+_debug_query_response: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar('debug_query_response', default=None)
+_debug_query_time: contextvars.ContextVar[Optional[float]] = contextvars.ContextVar('debug_query_time', default=None)
+_debug_prompt_context: contextvars.ContextVar[Optional[PromptContext]] = contextvars.ContextVar('debug_prompt_context', default=None)
 
 
 def _extract_text_from_content(content: Any) -> str:
@@ -63,7 +70,18 @@ def _wrap_create(
         else:
             in_db_chat_history = []
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # ------- 3. Retrieve memories ---------------------------------------
         # Convert Anthropic formatted messages to a string for querying
@@ -71,9 +89,20 @@ def _wrap_create(
         
         # Query memories if we have a non-empty query string
         retrieved_memories = []
+        query_response = None
         if query_string.strip():
+            # Measure query time
+            query_start_time = time.perf_counter()
             query_response = memory.query_session(query_string)
+            query_end_time = time.perf_counter()
+            query_duration = query_end_time - query_start_time
+            
+            # Store query response and timing for debugging access (invisible to normal users)
+            _debug_query_response.set(query_response)
+            _debug_query_time.set(query_duration)
+            
             retrieved_memories = query_response["data"]["results"]
+            logger.info(f"Query took {query_duration * 1000:.2f} ms")
         
         # ------- 4. Compose the prompt for Anthropic API format --------------------------
         prompt_context = PromptContext(
@@ -82,6 +111,9 @@ def _wrap_create(
             retrieved_chat_history=chat_history,
             max_chat_history=max_chat_history,
         )
+        
+        # Store prompt context for debugging access (invisible to normal users)
+        _debug_prompt_context.set(prompt_context)
 
         # Get system message and formatted messages for Anthropic
         system_prompt, anthropic_messages = prompt_context.compose_for_anthropic()
@@ -172,16 +204,38 @@ def _wrap_create_async(
         else:
             in_db_chat_history = []
 
-        chat_history = [{"role": message["role"], "content": message["content"]} for message in in_db_chat_history["data"]["messages"][::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
+        # TODO: Remove this defensive handling once the server API is fixed to consistently return
+        # the same format for memory.list_messages() - it should always return {"data": {"messages": [...]}}
+        # Currently it sometimes returns a list directly, causing "list indices must be integers or slices, not str" errors
+        # Handle both dict and list formats for chat history
+        if isinstance(in_db_chat_history, dict) and "data" in in_db_chat_history:
+            db_messages = in_db_chat_history["data"]["messages"]
+        elif isinstance(in_db_chat_history, list):
+            db_messages = in_db_chat_history
+        else:
+            db_messages = []
+
+        chat_history = [{"role": message["role"], "content": message["content"]} for message in db_messages[::-1]] + [{"role": message["role"], "content": message["content"]} for message in in_buffer_chat_history["data"]["messages"][::-1]]
 
         # ------- 3. Retrieve memories ---------------------------------------
         query_string = PromptFormatter.messages_to_query(chat_history + query_messages)
         
         # Query memories if we have a non-empty query string (ASYNC)
         retrieved_memories = []
+        query_response = None
         if query_string.strip():
+            # Measure query time
+            query_start_time = time.perf_counter()
             query_response = await memory.query_session(query_string)
+            query_end_time = time.perf_counter()
+            query_duration = query_end_time - query_start_time
+            
+            # Store query response and timing for debugging access (invisible to normal users)
+            _debug_query_response.set(query_response)
+            _debug_query_time.set(query_duration)
+            
             retrieved_memories = query_response["data"]["results"]
+            logger.info(f"Query took {query_duration * 1000:.2f} ms")
         
         # ------- 4. Compose the prompt for Anthropic API format --------------------------
         prompt_context = PromptContext(
@@ -190,6 +244,9 @@ def _wrap_create_async(
             retrieved_chat_history=chat_history,
             max_chat_history=max_chat_history,
         )
+        
+        # Store prompt context for debugging access (invisible to normal users)
+        _debug_prompt_context.set(prompt_context)
 
         # Get system message and formatted messages for Anthropic
         system_prompt, anthropic_messages = prompt_context.compose_for_anthropic()
@@ -278,4 +335,54 @@ class AsyncMemAnthropic(AsyncAnthropic):
         self._mem = memory
 
         original_create = self.messages.create
-        self.messages.create = _wrap_create_async(original_create, self._mem) 
+        self.messages.create = _wrap_create_async(original_create, self._mem)
+
+
+# Debug utilities (for benchmarks and debugging)
+def get_last_query_response() -> Optional[Dict[str, Any]]:
+    """
+    Get the last query response for debugging purposes.
+    
+    This function allows access to the intermediate query response from memory.query_session()
+    that occurs within the Anthropic adapter. This is useful for benchmarks and debugging to 
+    inspect what memories were retrieved.
+    
+    Returns:
+        The last query response dict if available, None otherwise.
+        
+    Note:
+        This is intended for debugging/benchmarking use only and should not be used
+        in production code as it relies on internal implementation details.
+    """
+    return _debug_query_response.get(None)
+
+
+def get_last_query_time() -> Optional[float]:
+    """
+    Get the last query timing for debugging purposes.
+    
+    Returns:
+        The last query duration in seconds if available, None otherwise.
+        
+    Note:
+        This is intended for debugging/benchmarking use only and should not be used
+        in production code as it relies on internal implementation details.
+    """
+    return _debug_query_time.get(None)
+
+
+def get_last_prompt_context() -> Optional[PromptContext]:
+    """
+    Get the last prompt context for debugging purposes.
+    
+    This function allows access to the PromptContext object that was used to compose
+    the final prompt sent to the LLM. This is useful for debugging prompt composition.
+    
+    Returns:
+        The last PromptContext object if available, None otherwise.
+        
+    Note:
+        This is intended for debugging/benchmarking use only and should not be used
+        in production code as it relies on internal implementation details.
+    """
+    return _debug_prompt_context.get(None) 

@@ -174,5 +174,10 @@ cython_debug/
 .pypirc
 
 .DS_Store
-scripts/
-benchmarks/
+CLAUDE.md
+
+.cursor/
+results/
+
+benchmarks/results/
+.claude/

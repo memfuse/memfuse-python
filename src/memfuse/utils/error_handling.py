@@ -3,9 +3,18 @@
 import asyncio
 import functools
 import sys
-from typing import Callable, TypeVar, Any, Awaitable
+from typing import Callable, TypeVar, Any, Awaitable, Dict
 
 T = TypeVar('T')
+
+
+class MemFuseHTTPError(Exception):
+    """Exception raised for HTTP errors from the MemFuse API."""
+    
+    def __init__(self, message: str, status_code: int, response_data: Dict[str, Any] = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_data = response_data or {}
 
 
 def handle_server_connection(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:

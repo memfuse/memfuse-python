@@ -382,25 +382,9 @@ class AsyncMemory:
             knowledge_ids=knowledge_ids,
         )
 
-    async def close(self):
-        """Close the client session.
-
-        This method should be called when the memory instance is no longer needed
-        to properly clean up resources.
-        """
-        await self.client.close()
-
-    async def __aenter__(self):
-        """Enter the async context manager."""
-        return self
-
-    async def __aexit__(self, *_):
-        """Exit the async context manager.
-
-        This method is called when the context is exited, either normally
-        or due to an exception. It closes the client session.
-        """
-        await self.close()
+    # Note: Memory instances don't own the underlying client, so they don't
+    # need close() or context manager methods. The client should be closed
+    # separately when it's no longer needed.
 
 
 if TYPE_CHECKING:
@@ -765,17 +749,7 @@ class Memory:
             knowledge_ids=knowledge_ids,
         )
 
-    def close(self):
-        """Close the memory instance. 
-        This calls the close method of the main MemFuse client.
-        """
-        self.client.close()
-
-    def __enter__(self):
-        """Enter the synchronous context manager."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Exit the synchronous context manager, ensuring resources are closed."""
-        self.close()
+    # Note: Memory instances don't own the underlying client, so they don't
+    # need close() or context manager methods. The client should be closed
+    # separately when it's no longer needed.
     
