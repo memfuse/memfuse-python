@@ -56,6 +56,9 @@ def print_evaluation_summary(benchmark_results, dataset_name):
                 print(f"     Model: {result.get('model_choice_idx')} | Correct: {result.get('correct_choice_idx')}")
                 if 'retrieval_time_ms' in result:
                     print(f"     Retrieval: {result['retrieval_time_ms']:.2f}ms")
+                # Show retrieval metrics for LME dataset
+                if dataset_name == "lme" and 'precision' in result:
+                    print(f"     Retrieval Metrics - P: {result['precision']:.3f}, R: {result['recall']:.3f}, F1: {result['f1']:.3f}")
             else:
                 print(f"Q{i+1}: {result.get('question_id', 'N/A')} - ⚠️ {result.get('status', 'UNKNOWN')}")
     
@@ -67,6 +70,13 @@ def print_evaluation_summary(benchmark_results, dataset_name):
     print(f"✅ Evaluation: {benchmark_results.success_count}/{benchmark_results.total_count} questions evaluated")
     print(f"📊 Final Accuracy: {benchmark_results.accuracy:.1f}%")
     print(f"⏱️  Total Time: {benchmark_results.total_elapsed_time:.2f}s")
+    
+    # Retrieval evaluation metrics (LME only)
+    if benchmark_results.retrieval_metrics_available and dataset_name == "lme":
+        print(f"\n🎯 RETRIEVAL EVALUATION METRICS:")
+        print(f"   Average Precision: {benchmark_results.avg_precision:.3f}")
+        print(f"   Average Recall: {benchmark_results.avg_recall:.3f}")
+        print(f"   Average F1 Score: {benchmark_results.avg_f1:.3f}")
     
     # Retrieval time statistics
     if benchmark_results.query_times:

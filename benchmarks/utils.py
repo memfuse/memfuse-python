@@ -800,6 +800,11 @@ class BenchmarkResults:
     total_elapsed_time: float
     total_retries: int = 0
     final_failures: int = 0
+    # Retrieval evaluation metrics (for LME dataset)
+    avg_precision: float = 0.0
+    avg_recall: float = 0.0
+    avg_f1: float = 0.0
+    retrieval_metrics_available: bool = False
     
     @property
     def success_rate(self) -> float:
@@ -1083,8 +1088,6 @@ async def run_benchmark_evaluation(
                     total_retries += result["retry_count"]
                 if result.get("failed_after_retries", False):
                     final_failures += 1
-        # Old for loop removed - using concurrent implementation above
-
         # Calculate total elapsed time
         total_end_time = time.perf_counter()
         total_elapsed_time = total_end_time - total_start_time
@@ -1112,6 +1115,30 @@ async def run_benchmark_evaluation(
         logger.info(f"Total retries: {total_retries}")
         logger.info(f"Final failures after all retries: {final_failures}")
         
+        # Calculate average retrieval metrics for LME dataset
+        avg_precision = avg_recall = avg_f1 = 0.0
+        retrieval_metrics_available = False
+        
+        if dataset_name == "lme":
+            # Extract retrieval metrics from valid results that have them
+            results_with_metrics = [
+                item for item in valid_results 
+                if 'precision' in item and 'recall' in item and 'f1' in item
+            ]
+            
+            if results_with_metrics:
+                avg_precision = sum(item['precision'] for item in results_with_metrics) / len(results_with_metrics)
+                avg_recall = sum(item['recall'] for item in results_with_metrics) / len(results_with_metrics)
+                avg_f1 = sum(item['f1'] for item in results_with_metrics) / len(results_with_metrics)
+                retrieval_metrics_available = True
+                
+                logger.info(f"=== RETRIEVAL EVALUATION METRICS (LME) ===")
+                logger.info(f"Questions with retrieval metrics: {len(results_with_metrics)}/{len(valid_results)}")
+                logger.info(f"Average Precision: {avg_precision:.3f}")
+                logger.info(f"Average Recall: {avg_recall:.3f}")
+                logger.info(f"Average F1: {avg_f1:.3f}")
+                logger.info(f"========================================")
+        
         # Note: Summary printing is now handled in the main scripts
         
         return BenchmarkResults(
@@ -1122,7 +1149,11 @@ async def run_benchmark_evaluation(
             accuracy=accuracy,
             total_elapsed_time=total_elapsed_time,
             total_retries=total_retries,
-            final_failures=final_failures
+            final_failures=final_failures,
+            avg_precision=avg_precision,
+            avg_recall=avg_recall,
+            avg_f1=avg_f1,
+            retrieval_metrics_available=retrieval_metrics_available
         )
 
 
@@ -1192,6 +1223,273 @@ def get_retrieval_timing_info(llm_provider: str = "openai") -> Optional[float]:
     except ImportError:
         # In case the adapter is not available
         return None
+
+
+def extract_answer_containing_messages(haystack_sessions: List[List[Dict[str, Any]]]) -> List[str]:
+    """
+    Extract content from messages that contain answers (has_answer=True) from haystack sessions.
+    
+    Args:
+        haystack_sessions: List of sessions, each containing a list of messages
+        
+    Returns:
+        List of message contents that have has_answer=True
+    """
+    answer_messages = []
+    
+    for session in haystack_sessions:
+        for message in session:
+            if message.get("has_answer") is True:
+                content = message.get("content", "").strip()
+                if content:
+                    answer_messages.append(content)
+    
+    return answer_messages
+
+
+def find_answer_containing_content(haystack_sessions: List[List[Dict[str, Any]]], answer_text: str) -> Tuple[List[str], List[str]]:
+    """
+    Find all content that contains the answer, both flagged messages and substring matches.
+    
+    Args:
+        haystack_sessions: List of sessions, each containing a list of messages
+        answer_text: The correct answer text to search for
+        
+    Returns:
+        Tuple of (flagged_messages, substring_messages)
+        - flagged_messages: Content from messages with has_answer=True
+        - substring_messages: Content from other messages containing answer substring
+    """
+    flagged_messages = []
+    substring_messages = []
+    answer_text_lower = answer_text.lower().strip()
+    
+    for session in haystack_sessions:
+        for message in session:
+            content = message.get("content", "").strip()
+            if not content:
+                continue
+                
+            content_lower = content.lower()
+            
+            if message.get("has_answer") is True:
+                flagged_messages.append(content)
+            elif answer_text_lower in content_lower:
+                substring_messages.append(content)
+    
+    return flagged_messages, substring_messages
+
+
+def calculate_enhanced_retrieval_metrics(
+    answer_text: str,
+    haystack_sessions: List[List[Dict[str, Any]]],
+    retrieved_memories: List[Dict[str, Any]],
+    logger: Optional[logging.Logger] = None
+) -> Dict[str, Any]:
+    """
+    Calculate enhanced precision, recall, and F1 for memory retrieval using both flagged 
+    messages and substring matching for more realistic evaluation.
+    
+    Args:
+        answer_text: The correct answer text
+        haystack_sessions: All haystack sessions for the question  
+        retrieved_memories: List of memory objects from get_retrieval_debug_info()
+        logger: Logger instance
+        
+    Returns:
+        Dict with precision, recall, f1, and detailed debug metrics
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    if not haystack_sessions:
+        return {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "flagged_messages_count": 0,
+            "substring_messages_count": 0,
+            "total_answer_content_count": 0,
+            "retrieved_memories_count": len(retrieved_memories),
+            "flagged_hits": 0,
+            "substring_hits": 0,
+            "total_hits": 0
+        }
+    
+    if not retrieved_memories:
+        flagged_msgs, substring_msgs = find_answer_containing_content(haystack_sessions, answer_text)
+        return {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "flagged_messages_count": len(flagged_msgs),
+            "substring_messages_count": len(substring_msgs),
+            "total_answer_content_count": len(flagged_msgs) + len(substring_msgs),
+            "retrieved_memories_count": 0,
+            "flagged_hits": 0,
+            "substring_hits": 0,
+            "total_hits": 0
+        }
+    
+    # Find all content containing the answer
+    flagged_msgs, substring_msgs = find_answer_containing_content(haystack_sessions, answer_text)
+    total_answer_content = len(flagged_msgs) + len(substring_msgs)
+    
+    if total_answer_content == 0:
+        return {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "flagged_messages_count": 0,
+            "substring_messages_count": 0,
+            "total_answer_content_count": 0,
+            "retrieved_memories_count": len(retrieved_memories),
+            "flagged_hits": 0,
+            "substring_hits": 0,
+            "total_hits": 0
+        }
+    
+    # Check retrieved memories for matches
+    flagged_hits = 0
+    substring_hits = 0
+    answer_text_lower = answer_text.lower().strip()
+    
+    for memory in retrieved_memories:
+        memory_content = memory.get("content", "").strip()
+        if not memory_content:
+            continue
+            
+        memory_content_lower = memory_content.lower()
+        
+        # Check against flagged messages (bidirectional substring match)
+        flagged_match = False
+        for flagged_msg in flagged_msgs:
+            flagged_msg_lower = flagged_msg.lower().strip()
+            if (flagged_msg_lower in memory_content_lower or 
+                memory_content_lower in flagged_msg_lower):
+                flagged_hits += 1
+                flagged_match = True
+                break
+        
+        # If no flagged match, check for answer substring (avoid double counting)
+        if not flagged_match and answer_text_lower in memory_content_lower:
+            substring_hits += 1
+    
+    total_hits = flagged_hits + substring_hits
+    
+    # Calculate metrics
+    recall = total_hits / total_answer_content if total_answer_content > 0 else 0.0
+    precision = total_hits / len(retrieved_memories) if retrieved_memories else 0.0
+    f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    
+    metrics = {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "flagged_messages_count": len(flagged_msgs),
+        "substring_messages_count": len(substring_msgs),
+        "total_answer_content_count": total_answer_content,
+        "retrieved_memories_count": len(retrieved_memories),
+        "flagged_hits": flagged_hits,
+        "substring_hits": substring_hits,
+        "total_hits": total_hits
+    }
+    
+    logger.debug(f"Enhanced retrieval metrics: {metrics}")
+    return metrics
+
+
+def calculate_retrieval_metrics(
+    answer_messages: List[str], 
+    retrieved_memories: List[Dict[str, Any]],
+    logger: Optional[logging.Logger] = None
+) -> Dict[str, float]:
+    """
+    Calculate precision, recall, and F1 for memory retrieval by matching answer-containing 
+    messages with retrieved memories using substring search.
+    
+    Args:
+        answer_messages: List of message contents that contain answers (has_answer=True)
+        retrieved_memories: List of memory objects from get_retrieval_debug_info()
+        logger: Logger instance
+        
+    Returns:
+        Dict with precision, recall, f1, and additional debug metrics
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    if not answer_messages:
+        # No answer messages to match
+        return {
+            "precision": 0.0,
+            "recall": 0.0, 
+            "f1": 0.0,
+            "answer_messages_count": 0,
+            "retrieved_memories_count": len(retrieved_memories),
+            "matched_answer_messages": 0,
+            "matched_retrieved_memories": 0
+        }
+    
+    if not retrieved_memories:
+        # No memories retrieved
+        return {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0, 
+            "answer_messages_count": len(answer_messages),
+            "retrieved_memories_count": 0,
+            "matched_answer_messages": 0,
+            "matched_retrieved_memories": 0
+        }
+    
+    # Extract content from retrieved memories
+    retrieved_contents = []
+    for memory in retrieved_memories:
+        content = memory.get("content", "").strip()
+        if content:
+            retrieved_contents.append(content)
+    
+    # Find matches using substring search
+    matched_answer_messages = 0
+    matched_memory_indices = set()
+    
+    for answer_content in answer_messages:
+        answer_found = False
+        # Normalize answer content for better matching (lowercase, strip)
+        answer_normalized = answer_content.lower().strip()
+        
+        for i, memory_content in enumerate(retrieved_contents):
+            memory_normalized = memory_content.lower().strip()
+            
+            # Check if answer content appears as substring in memory content
+            # or vice versa (in case memory content is truncated)
+            if (answer_normalized in memory_normalized or 
+                memory_normalized in answer_normalized):
+                if not answer_found:
+                    matched_answer_messages += 1
+                    answer_found = True
+                matched_memory_indices.add(i)
+    
+    matched_retrieved_memories = len(matched_memory_indices)
+    
+    # Calculate metrics
+    recall = matched_answer_messages / len(answer_messages) if answer_messages else 0.0
+    precision = matched_retrieved_memories / len(retrieved_contents) if retrieved_contents else 0.0
+    f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    
+    metrics = {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "answer_messages_count": len(answer_messages),
+        "retrieved_memories_count": len(retrieved_contents),
+        "matched_answer_messages": matched_answer_messages,
+        "matched_retrieved_memories": matched_retrieved_memories
+    }
+    
+    logger.debug(f"Retrieval metrics: {metrics}")
+    return metrics
 
 
 async def run_question_by_question_evaluation(
@@ -1396,6 +1694,86 @@ async def run_question_by_question_evaluation(
                 query_duration = retrieval_timing or 0.0
                 all_query_times.append(query_duration)
                 
+                # Calculate retrieval metrics for LME dataset
+                retrieval_metrics = {}
+                if dataset_name == "lme":
+                    haystack_sessions = data_sample.get('haystack_sessions', [])
+                    if haystack_sessions and retrieval_debug:
+                        # Get the correct answer text
+                        answer_text = choices[correct_choice_index] if correct_choice_index < len(choices) else ""
+                        retrieved_memories = retrieval_debug.get("data", {}).get("results", [])
+                        
+                        # Calculate enhanced metrics (primary)
+                        enhanced_metrics = calculate_enhanced_retrieval_metrics(
+                            answer_text=answer_text,
+                            haystack_sessions=haystack_sessions,
+                            retrieved_memories=retrieved_memories,
+                            logger=logger
+                        )
+                        
+                        # Also calculate legacy metrics for comparison
+                        answer_messages = extract_answer_containing_messages(haystack_sessions)
+                        legacy_metrics = calculate_retrieval_metrics(
+                            answer_messages, 
+                            retrieved_memories,
+                            logger
+                        )
+                        
+                        # Use enhanced metrics as primary, but include both for comparison
+                        retrieval_metrics = enhanced_metrics.copy()
+                        retrieval_metrics.update({
+                            "legacy_precision": legacy_metrics["precision"],
+                            "legacy_recall": legacy_metrics["recall"], 
+                            "legacy_f1": legacy_metrics["f1"]
+                        })
+                        
+                        logger.info(f"Q{question_number} ENHANCED retrieval metrics - "
+                                  f"Precision: {enhanced_metrics['precision']:.3f}, "
+                                  f"Recall: {enhanced_metrics['recall']:.3f}, "
+                                  f"F1: {enhanced_metrics['f1']:.3f}")
+                        logger.info(f"Q{question_number} Legacy metrics - "
+                                  f"Precision: {legacy_metrics['precision']:.3f}, "
+                                  f"Recall: {legacy_metrics['recall']:.3f}, "
+                                  f"F1: {legacy_metrics['f1']:.3f}")
+                        
+                        # Enhanced debug logging for detailed inspection
+                        logger.info(f"=== RETRIEVAL DEBUG FOR Q{question_number} ({question_id}) ===")
+                        logger.info(f"Question: {question_text}")
+                        logger.info(f"Expected Answer: '{answer_text}'")
+                        
+                        # Show enhanced metrics breakdown
+                        flagged_msgs, substring_msgs = find_answer_containing_content(haystack_sessions, answer_text)
+                        logger.info(f"\n📝 ANSWER CONTENT IN HAYSTACK:")
+                        logger.info(f"  Flagged messages (has_answer=True): {len(flagged_msgs)}")
+                        logger.info(f"  Substring matches: {len(substring_msgs)}")
+                        logger.info(f"  Total answer content: {enhanced_metrics['total_answer_content_count']}")
+                        
+                        for i, msg in enumerate(flagged_msgs):
+                            logger.info(f"    Flagged {i+1}: '{msg[:150]}{'...' if len(msg) > 150 else ''}'")
+                        for i, msg in enumerate(substring_msgs[:3]):  # Show first 3 substring matches
+                            logger.info(f"    Substring {i+1}: '{msg[:150]}{'...' if len(msg) > 150 else ''}'")
+                        
+                        logger.info(f"\n🔍 RETRIEVED MEMORIES ({len(retrieved_memories)}):")
+                        for i, memory in enumerate(retrieved_memories):
+                            content = memory.get("content", "")
+                            score = memory.get("score", 0)
+                            logger.info(f"  Memory {i+1} (Score: {score:.3f}): '{content[:150]}{'...' if len(content) > 150 else ''}'")
+                        
+                        logger.info(f"\n🔄 ENHANCED MATCHING ANALYSIS:")
+                        logger.info(f"  Flagged hits: {enhanced_metrics['flagged_hits']}/{enhanced_metrics['flagged_messages_count']}")
+                        logger.info(f"  Substring hits: {enhanced_metrics['substring_hits']}/{enhanced_metrics['substring_messages_count']}")
+                        logger.info(f"  Total hits: {enhanced_metrics['total_hits']}/{enhanced_metrics['total_answer_content_count']}")
+                        logger.info(f"  Enhanced Precision: {enhanced_metrics['precision']:.3f}")
+                        logger.info(f"  Enhanced Recall: {enhanced_metrics['recall']:.3f}")
+                        logger.info(f"  Enhanced F1: {enhanced_metrics['f1']:.3f}")
+                        
+                        logger.info(f"\n📊 LEGACY COMPARISON:")
+                        logger.info(f"  Legacy Precision: {legacy_metrics['precision']:.3f}")
+                        logger.info(f"  Legacy Recall: {legacy_metrics['recall']:.3f}")
+                        logger.info(f"  Legacy F1: {legacy_metrics['f1']:.3f}")
+                        
+                        logger.info(f"=== END RETRIEVAL DEBUG Q{question_number} ===\n")
+                
                 if retrieval_debug:
                     results = retrieval_debug.get("data", {}).get("results", [])
                     retrieved_memories_count = len(results)
@@ -1436,6 +1814,8 @@ async def run_question_by_question_evaluation(
                     "failed_after_retries": llm_response_model.failed_after_retries,
                     "retrieved_memories_count": retrieved_memories_count,
                     "retrieval_debug_available": retrieval_debug is not None,
+                    # Add retrieval metrics
+                    **retrieval_metrics
                 })
                 
             except ConnectionError as e:
@@ -1482,6 +1862,30 @@ async def run_question_by_question_evaluation(
         logger.info(f"Total retries: {total_retries}")
         logger.info(f"Final failures after all retries: {final_failures}")
         
+        # Calculate average retrieval metrics for LME dataset
+        avg_precision = avg_recall = avg_f1 = 0.0
+        retrieval_metrics_available = False
+        
+        if dataset_name == "lme":
+            # Extract retrieval metrics from valid results that have them
+            results_with_metrics = [
+                item for item in valid_results 
+                if 'precision' in item and 'recall' in item and 'f1' in item
+            ]
+            
+            if results_with_metrics:
+                avg_precision = sum(item['precision'] for item in results_with_metrics) / len(results_with_metrics)
+                avg_recall = sum(item['recall'] for item in results_with_metrics) / len(results_with_metrics)
+                avg_f1 = sum(item['f1'] for item in results_with_metrics) / len(results_with_metrics)
+                retrieval_metrics_available = True
+                
+                logger.info(f"=== RETRIEVAL EVALUATION METRICS (LME) ===")
+                logger.info(f"Questions with retrieval metrics: {len(results_with_metrics)}/{len(valid_results)}")
+                logger.info(f"Average Precision: {avg_precision:.3f}")
+                logger.info(f"Average Recall: {avg_recall:.3f}")
+                logger.info(f"Average F1: {avg_f1:.3f}")
+                logger.info(f"========================================")
+        
         return BenchmarkResults(
             question_results=results_summary,
             query_times=all_query_times,
@@ -1490,5 +1894,9 @@ async def run_question_by_question_evaluation(
             accuracy=accuracy,
             total_elapsed_time=total_elapsed_time,
             total_retries=total_retries,
-            final_failures=final_failures
+            final_failures=final_failures,
+            avg_precision=avg_precision,
+            avg_recall=avg_recall,
+            avg_f1=avg_f1,
+            retrieval_metrics_available=retrieval_metrics_available
         )
