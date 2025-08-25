@@ -45,15 +45,15 @@ jobs:
     - name: Get version
       id: version
       run: |
-        VERSION=$(poetry version --short)
+        # Build first to trigger dynamic versioning
+        poetry build
+        # Extract version from built wheel filename
+        VERSION=$(ls dist/*.whl | head -1 | sed 's/.*-\([0-9][^-]*\)-.*/\1/')
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Version: $VERSION"
 
     - name: Run tests
       run: poetry run python scripts/run_tests.py --layer smoke --layer unit
-
-    - name: Build package
-      run: poetry build
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -64,7 +64,7 @@ jobs:
   deploy-test:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'test' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    if: (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'test') || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
     environment: test-pypi
     steps:
     - name: Download build artifacts
