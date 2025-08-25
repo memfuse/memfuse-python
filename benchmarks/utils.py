@@ -265,7 +265,7 @@ async def _call_memfuse(
         choices_length: int,
         model_name: str,
         memory_instance,
-        llm_provider: str = "gemini",
+        llm_provider: str = "openai",
         max_retries: int = 20,
         logger: Optional[logging.Logger] = None
     ):
@@ -806,24 +806,179 @@ class BenchmarkResults:
         return (self.success_count / self.total_count * 100) if self.total_count > 0 else 0.0
 
 
+async def _evaluate_single_question(
+        semaphore: asyncio.Semaphore,
+        llm_call_semaphore: asyncio.Semaphore,
+        llm_call_counter: Dict[str, int],
+        llm_timing_lock: asyncio.Lock,
+        memfuse_client,
+        data_sample: Dict[str, Any],
+        question_number: int,
+        total_questions: int,
+        top_k: int,
+        model_name: str,
+        llm_provider: str,
+        concurrent_delay: float,
+        logger: logging.Logger
+    ) -> Dict[str, Any]:
+    """Evaluate a single question with concurrency control."""
+    async with semaphore:
+        logger.info(f"--- Processing Question {question_number}/{total_questions} ---")
+
+        question_id = data_sample.get('question_id', f"q_{uuid.uuid4().hex[:8]}")
+        question_text = data_sample.get('question')
+        choices = data_sample.get('choices')
+        correct_choice_index = data_sample.get('correct_choice_index')
+
+        if not all([question_text, choices, correct_choice_index is not None]):
+            logger.error(f"Question {question_number} (ID: {question_id}): Missing required fields for evaluation. Skipping.")
+            return {
+                "question_id": question_id,
+                "question_text": question_text,
+                "status": "SKIPPED - Missing data",
+                "query_time": 0.0
+            }
+
+        logger.info(f"Question {question_number} (ID: {question_id}): {question_text}")
+
+        user_name_for_test = question_id
+        agent_name_for_test = "agent_default"
+
+        try:
+            # Create memory instance for the current question
+            logger.info(f"Initializing MemFuse for Q{question_number}...")
+            query_memory_instance = await memfuse_client.init(
+                user=user_name_for_test,
+                agent=agent_name_for_test,
+            )
+
+            # Create the multiple choice question format
+            formatted_question = f"{question_text}\n\nChoices:\n"
+            for i, choice in enumerate(choices):
+                formatted_question += f"{i}. {choice}\n"
+
+            # Call LLM with MemFuse integration (SDK handles memory retrieval automatically)
+            # Use controlled concurrency with staggered delays
+            async with llm_call_semaphore:
+                # Calculate delay based on call order to stagger LLM calls
+                async with llm_timing_lock:
+                    call_order = llm_call_counter["count"]
+                    llm_call_counter["count"] += 1
+                    delay_time = call_order * concurrent_delay
+
+                # Apply staggered delay before making the LLM call
+                if delay_time > 0:
+                    logger.info(f"Delaying Q{question_number} LLM call by {delay_time:.1f}s...")
+                    await asyncio.sleep(delay_time)
+
+                logger.info(f"Calling MemFuse {llm_provider} for Q{question_number}...")
+                llm_response_model = await _call_memfuse(
+                    query=formatted_question,
+                    choices_length=len(choices),
+                    model_name=model_name,
+                    memory_instance=query_memory_instance,
+                    llm_provider=llm_provider,
+                    max_retries=20,
+                    logger=logger
+                )
+
+            model_choice_idx = llm_response_model.index
+            model_explanation = llm_response_model.reasoning
+            is_correct = (model_choice_idx == correct_choice_index)
+
+            # Capture retrieval debug info and timing from the SDK
+            retrieval_debug = get_retrieval_debug_info(llm_provider)
+            retrieval_timing = get_retrieval_timing_info(llm_provider)
+
+            retrieved_memories_count = 0
+            query_duration = retrieval_timing or 0.0  # Default to 0 if timing not available
+
+            retrieved_memories_summary = None
+            if retrieval_debug:
+                results = retrieval_debug.get("data", {}).get("results", [])
+                retrieved_memories_count = len(results)
+                logger.info(f"MemFuse query for Q{question_number} took {query_duration * 1000:.2f} ms.")
+                # Create a summary for logging failed questions
+                if not is_correct and results:
+                    retrieved_memories_summary = []
+                    for result in results[:3]:  # Show first 3 for brevity
+                        content = result.get("content", "")[:100]  # Truncate long content
+                        score = result.get("score", 0)
+                        retrieved_memories_summary.append(f"Score:{score:.3f} Content:{content}...")
+                    logger.info(f"Q{question_number} FAILED - Retrieved {retrieved_memories_count} memories: {retrieved_memories_summary}")
+                elif not is_correct:
+                    logger.info(f"Q{question_number} FAILED - No memories retrieved from RAG")
+            else:
+                logger.warning(f"No retrieval debug info available for Q{question_number}")
+
+            logger.info(f"--- Q{question_number} RESULT ---")
+            logger.info(f"Question: {question_text}")
+            logger.info(f"LLM's Choice: {model_choice_idx} ('{choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index'}')")
+            logger.info(f"Correct Choice: {correct_choice_index} ('{choices[correct_choice_index]}')")
+            logger.info(f"Result: {'CORRECT' if is_correct else 'INCORRECT'}")
+            logger.info(f"LLM's Explanation: {model_explanation}")
+
+            return {
+                "question_id": question_id,
+                "question_text": question_text,
+                "model_choice_idx": model_choice_idx,
+                "model_choice_text": choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index',
+                "correct_choice_idx": correct_choice_index,
+                "correct_choice_text": choices[correct_choice_index],
+                "is_correct": is_correct,
+                "explanation": model_explanation,
+                "top_k": top_k,
+                "retrieval_time_ms": query_duration * 1000,
+                "retry_count": llm_response_model.retry_count,
+                "failed_after_retries": llm_response_model.failed_after_retries,
+                "retrieved_memories_count": retrieved_memories_count,
+                "retrieval_debug_available": retrieval_debug is not None,
+                "query_time": query_duration,
+                "memory_instance": query_memory_instance
+            }
+
+        except ConnectionError as e:
+            error_msg = f"Connection error with MemFuse server for Q{question_number} (ID: {question_id}): {e}"
+            logger.error(error_msg)
+            return {
+                "question_id": question_id,
+                "question_text": question_text,
+                "status": f"FAILED - ConnectionError: {e}",
+                "query_time": 0.0
+            }
+        except Exception as e:
+            error_msg = f"Unexpected error for Q{question_number} (ID: {question_id}): {e}"
+            logger.error(error_msg, exc_info=True)
+            return {
+                "question_id": question_id,
+                "question_text": question_text,
+                "status": f"FAILED - Exception: {e}",
+                "query_time": 0.0
+            }
+
+
 async def run_benchmark_evaluation(
         dataset: List[Dict[str, Any]],
-        dataset_name: str, 
+        dataset_name: str,
         top_k: int = 3,
         model_name: str = "deepseek-ai/DeepSeek-V3.1",
-        llm_provider: str = "gemini",
+        llm_provider: str = "openai",
+        concurrent: int = 1,
+        concurrent_delay: float = 0.1,
         logger: Optional[logging.Logger] = None
     ) -> BenchmarkResults:
     """Run benchmark evaluation on a dataset.
-    
+
     Args:
         dataset: List of questions with choices and correct answers
         dataset_name: Name of dataset for recording (msc, lme, locomo)
         top_k: Number of top results to retrieve from memory
         model_name: LLM model to use for evaluation
         llm_provider: LLM provider to use ("gemini", "openai", "anthropic")
+        concurrent: Number of concurrent evaluations to run (default: 1)
+        concurrent_delay: Delay in seconds between starting concurrent tasks (default: 0.1)
         logger: Logger instance
-    
+
     Returns:
         BenchmarkResults with evaluation statistics
     """
@@ -835,153 +990,101 @@ async def run_benchmark_evaluation(
     from benchmarks.recorder import BenchmarkRecorder
     
     logger.info(f"Starting benchmark evaluation for {len(dataset)} questions...")
-    logger.info(f"Using {llm_provider} model: {model_name}, TOP_K: {top_k}")
-    
+    logger.info(f"Using {llm_provider} model: {model_name}, TOP_K: {top_k}, "
+                f"Concurrent: {concurrent}")
+
     # Initialize recorder
     recorder = BenchmarkRecorder(dataset_name=dataset_name, top_k=top_k)
-    
-    # Tracking variables
-    all_created_mem_instances = []
-    all_query_times = []
-    correct_answers_count = 0
-    results_summary = []
-    total_retries = 0
-    final_failures = 0
-    
+
     # Track total elapsed time
     total_start_time = time.perf_counter()
-    
+
     # Use async context manager for proper resource cleanup
     async with AsyncMemFuse() as memfuse_client:
+        # Create semaphore to control concurrency
+        semaphore = asyncio.Semaphore(concurrent)
+        # Allow concurrent LLM calls but with controlled spacing
+        # This allows true parallelism while avoiding server overload
+        llm_call_semaphore = asyncio.Semaphore(concurrent)
+
+        # Create a shared counter and lock for LLM call timing
+        llm_call_counter = {"count": 0}
+        llm_timing_lock = asyncio.Lock()
+
+        # Create tasks for concurrent evaluation with staggered start times
+        tasks = []
         for i, data_sample in enumerate(dataset):
             question_number = i + 1
-            logger.info(f"--- Processing Question {question_number}/{len(dataset)} ---")
-            
-            question_id = data_sample.get('question_id', f"q_{uuid.uuid4().hex[:8]}")
-            question_text = data_sample.get('question')
-            choices = data_sample.get('choices')
-            correct_choice_index = data_sample.get('correct_choice_index')
-            
-            if not all([question_text, choices, correct_choice_index is not None]):
-                logger.error(f"Question {question_number} (ID: {question_id}): Missing required fields for evaluation. Skipping.")
+            task = _evaluate_single_question(
+                semaphore=semaphore,
+                llm_call_semaphore=llm_call_semaphore,
+                llm_call_counter=llm_call_counter,
+                llm_timing_lock=llm_timing_lock,
+                memfuse_client=memfuse_client,
+                data_sample=data_sample,
+                question_number=question_number,
+                total_questions=len(dataset),
+                top_k=top_k,
+                model_name=model_name,
+                llm_provider=llm_provider,
+                concurrent_delay=concurrent_delay,
+                logger=logger
+            )
+            tasks.append(task)
+
+        # Execute all tasks with staggered start times
+        logger.info(f"Executing {len(tasks)} evaluation tasks with "
+                    f"concurrency limit of {concurrent} and {concurrent_delay}s delay...")
+
+        # Start tasks with delays to implement pseudo-concurrent execution
+        async def start_task_with_delay(task, delay):
+            if delay > 0:
+                await asyncio.sleep(delay)
+            return await task
+
+        # Create delayed tasks
+        delayed_tasks = []
+        for i, task in enumerate(tasks):
+            delay = (i % concurrent) * concurrent_delay
+            delayed_task = start_task_with_delay(task, delay)
+            delayed_tasks.append(delayed_task)
+
+        results_list = await asyncio.gather(*delayed_tasks, return_exceptions=True)
+
+        # Process results
+        results_summary = []
+        all_query_times = []
+        all_created_mem_instances = []
+        total_retries = 0
+        final_failures = 0
+
+        for i, result in enumerate(results_list):
+            if isinstance(result, Exception):
+                logger.error(f"Task {i+1} failed with exception: {result}")
                 results_summary.append({
-                    "question_id": question_id, 
-                    "question_text": question_text, 
-                    "status": "SKIPPED - Missing data"
+                    "question_id": f"q_{i+1}_failed",
+                    "question_text": "Task failed",
+                    "status": f"FAILED - Exception: {result}"
                 })
-                continue
-            
-            logger.info(f"Question {question_number} (ID: {question_id}): {question_text}")
-            
-            user_name_for_test = question_id
-            agent_name_for_test = "agent_default"
-            
-            try:
-                # Create memory instance for the current question 
-                logger.info(f"Initializing MemFuse for Q{question_number}...")
-                query_memory_instance = await memfuse_client.init(
-                    user=user_name_for_test,
-                    agent=agent_name_for_test,
-                )
-                
-                all_created_mem_instances.append(query_memory_instance)
-                
-                # Create the multiple choice question format
-                formatted_question = f"{question_text}\n\nChoices:\n"
-                for i, choice in enumerate(choices):
-                    formatted_question += f"{i}. {choice}\n"
-                
-                # Call LLM with MemFuse integration (SDK handles memory retrieval automatically)
-                logger.info(f"Calling MemFuse {llm_provider} for Q{question_number}...")
-                llm_response_model = await _call_memfuse(
-                    query=formatted_question,
-                    choices_length=len(choices),
-                    model_name=model_name,
-                    memory_instance=query_memory_instance,
-                    llm_provider=llm_provider,
-                    max_retries=20,
-                    logger=logger
-                )
-                
-                model_choice_idx = llm_response_model.index
-                model_explanation = llm_response_model.reasoning
-                is_correct = (model_choice_idx == correct_choice_index)
-                
-                # Track retry statistics
-                total_retries += llm_response_model.retry_count
-                if llm_response_model.failed_after_retries:
+            elif isinstance(result, dict):
+                results_summary.append(result)
+
+                # Collect query times and memory instances
+                if ("query_time" in result and
+                        isinstance(result["query_time"], (int, float))):
+                    all_query_times.append(result["query_time"])
+
+                if "memory_instance" in result:
+                    all_created_mem_instances.append(result["memory_instance"])
+
+                # Collect retry statistics
+                if ("retry_count" in result and
+                        isinstance(result["retry_count"], int)):
+                    total_retries += result["retry_count"]
+                if result.get("failed_after_retries", False):
                     final_failures += 1
-                
-                if is_correct:
-                    correct_answers_count += 1
-                
-                # Capture retrieval debug info and timing from the SDK
-                retrieval_debug = get_retrieval_debug_info(llm_provider)
-                retrieval_timing = get_retrieval_timing_info(llm_provider)
-                
-                retrieved_memories_count = 0
-                query_duration = retrieval_timing or 0.0  # Default to 0 if timing not available
-                all_query_times.append(query_duration)
-                
-                retrieved_memories_summary = None
-                if retrieval_debug:
-                    results = retrieval_debug.get("data", {}).get("results", [])
-                    retrieved_memories_count = len(results)
-                    logger.info(f"MemFuse query for Q{question_number} took {query_duration * 1000:.2f} ms.")
-                    # Create a summary for logging failed questions
-                    if not is_correct and results:
-                        retrieved_memories_summary = []
-                        for result in results[:3]:  # Show first 3 for brevity
-                            content = result.get("content", "")[:100]  # Truncate long content
-                            score = result.get("score", 0)
-                            retrieved_memories_summary.append(f"Score:{score:.3f} Content:{content}...")
-                        logger.info(f"Q{question_number} FAILED - Retrieved {retrieved_memories_count} memories: {retrieved_memories_summary}")
-                    elif not is_correct:
-                        logger.info(f"Q{question_number} FAILED - No memories retrieved from RAG")
-                else:
-                    logger.warning(f"No retrieval debug info available for Q{question_number}")
-                
-                logger.info(f"--- Q{question_number} RESULT ---")
-                logger.info(f"Question: {question_text}")
-                logger.info(f"LLM's Choice: {model_choice_idx} ('{choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index'}')")
-                logger.info(f"Correct Choice: {correct_choice_index} ('{choices[correct_choice_index]}')")
-                logger.info(f"Result: {'CORRECT' if is_correct else 'INCORRECT'}")
-                logger.info(f"LLM's Explanation: {model_explanation}")
-                
-                results_summary.append({
-                    "question_id": question_id,
-                    "question_text": question_text,
-                    "model_choice_idx": model_choice_idx,
-                    "model_choice_text": choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index',
-                    "correct_choice_idx": correct_choice_index,
-                    "correct_choice_text": choices[correct_choice_index],
-                    "is_correct": is_correct,
-                    "explanation": model_explanation,
-                    "top_k": top_k,
-                    "retrieval_time_ms": query_duration * 1000,
-                    "retry_count": llm_response_model.retry_count,
-                    "failed_after_retries": llm_response_model.failed_after_retries,
-                    "retrieved_memories_count": retrieved_memories_count,
-                    "retrieval_debug_available": retrieval_debug is not None,
-                })
-                
-            except ConnectionError as e:
-                error_msg = f"Connection error with MemFuse server for Q{question_number} (ID: {question_id}): {e}"
-                logger.error(error_msg)
-                results_summary.append({
-                    "question_id": question_id, 
-                    "question_text": question_text, 
-                    "status": f"FAILED - ConnectionError: {e}"
-                })
-            except Exception as e:
-                error_msg = f"Unexpected error for Q{question_number} (ID: {question_id}): {e}"
-                logger.error(error_msg, exc_info=True)
-                results_summary.append({
-                    "question_id": question_id, 
-                    "question_text": question_text, 
-                    "status": f"FAILED - Exception: {e}"
-                })
-        
+        # Old for loop removed - using concurrent implementation above
+
         # Calculate total elapsed time
         total_end_time = time.perf_counter()
         total_elapsed_time = total_end_time - total_start_time
@@ -1023,7 +1126,7 @@ async def run_benchmark_evaluation(
         )
 
 
-def get_retrieval_debug_info(llm_provider: str = "gemini") -> Optional[Dict[str, Any]]:
+def get_retrieval_debug_info(llm_provider: str = "openai") -> Optional[Dict[str, Any]]:
     """
     Get retrieval debug information from the last MemFuse query.
     
@@ -1064,7 +1167,7 @@ def get_retrieval_debug_info(llm_provider: str = "gemini") -> Optional[Dict[str,
         return None
 
 
-def get_retrieval_timing_info(llm_provider: str = "gemini") -> Optional[float]:
+def get_retrieval_timing_info(llm_provider: str = "openai") -> Optional[float]:
     """
     Get retrieval timing information from the last MemFuse query.
     
@@ -1097,8 +1200,10 @@ async def run_question_by_question_evaluation(
         dataset_type: str,
         top_k: int = 3,
         model_name: str = "deepseek-ai/DeepSeek-V3.1",
-        llm_provider: str = "gemini",
+        llm_provider: str = "openai",
         skip_data_loading: bool = False,
+        concurrent: int = 1,
+        concurrent_delay: float = 0.1,
         logger: Optional[logging.Logger] = None
     ) -> BenchmarkResults:
     """Run benchmark evaluation with question-by-question data loading and testing.

@@ -157,17 +157,21 @@ async def main():
     parser.add_argument("--question-types", nargs="+", help="Filter by question types (LME only)")
     parser.add_argument("--question-ids-file", type=str, help="File containing question IDs to test (one per line)")
     parser.add_argument("--top-k", type=int, help="Override default TOP_K value for memory retrieval")
-    parser.add_argument("--llm-provider", type=str, choices=["gemini", "openai", "anthropic"], 
+    parser.add_argument("--llm-provider", type=str, choices=["gemini", "openai", "anthropic"],
                         default="gemini", help="LLM provider to use (default: gemini)")
-    
+
     # Parse args partially to get the provider first
     known_args, _ = parser.parse_known_args()
     default_model = get_default_model(known_args.llm_provider)
-    
-    parser.add_argument("--model", type=str, default=default_model, 
+
+    parser.add_argument("--model", type=str, default=default_model,
                         help=f"Model name (default for {known_args.llm_provider}: {default_model})")
-    parser.add_argument("--no-data-loading", action="store_true", 
+    parser.add_argument("--no-data-loading", action="store_true",
                         help="Skip loading haystack data per question (assumes data already loaded)")
+    parser.add_argument("--concurrent", type=int, default=1,
+                        help="Number of concurrent evaluations (default: 1)")
+    parser.add_argument("--concurrent-delay", type=float, default=0.1,
+                        help="Delay in seconds between starting concurrent tasks (default: 0.1)")
     
     args = parser.parse_args()
     
@@ -246,6 +250,8 @@ async def main():
         model_name=model_name,
         llm_provider=args.llm_provider,
         skip_data_loading=args.no_data_loading,
+        concurrent=args.concurrent,
+        concurrent_delay=args.concurrent_delay,
         logger=logger
     )
     
