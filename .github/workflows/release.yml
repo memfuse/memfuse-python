@@ -2,8 +2,6 @@ name: Release
 
 on:
   push:
-    branches:
-      - 'feat/release-automation'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -45,7 +43,7 @@ jobs:
     - name: Get version
       id: version
       run: |
-        VERSION=$(poetry run python -c "import memfuse; print(memfuse.__version__)")
+        VERSION=$(poetry version --short)
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Version: $VERSION"
 
