@@ -265,7 +265,7 @@ async def _call_memfuse(
         choices_length: int,
         model_name: str,
         memory_instance,
-        llm_provider: str = "openai",
+        llm_provider: str = "gemini",
         max_retries: int = 20,
         logger: Optional[logging.Logger] = None
     ):
@@ -950,7 +950,7 @@ async def run_benchmark_evaluation(
         dataset_name: str,
         top_k: int = 3,
         model_name: str = "deepseek-ai/DeepSeek-V3.1",
-        llm_provider: str = "openai",
+        llm_provider: str = "gemini",
         concurrent: int = 1,
         logger: Optional[logging.Logger] = None
     ) -> BenchmarkResults:
@@ -1114,7 +1114,7 @@ async def run_benchmark_evaluation(
         )
 
 
-def get_retrieval_debug_info(llm_provider: str = "openai") -> Optional[Dict[str, Any]]:
+def get_retrieval_debug_info(llm_provider: str = "gemini") -> Optional[Dict[str, Any]]:
     """
     Get retrieval debug information from the last MemFuse query.
     
@@ -1155,7 +1155,7 @@ def get_retrieval_debug_info(llm_provider: str = "openai") -> Optional[Dict[str,
         return None
 
 
-def get_retrieval_timing_info(llm_provider: str = "openai") -> Optional[float]:
+def get_retrieval_timing_info(llm_provider: str = "gemini") -> Optional[float]:
     """
     Get retrieval timing information from the last MemFuse query.
     
@@ -1449,6 +1449,201 @@ def calculate_retrieval_metrics(
     return metrics
 
 
+async def _evaluate_single_question_with_data_loading(
+        semaphore: asyncio.Semaphore,
+        memfuse_client,
+        data_sample: Dict[str, Any],
+        question_number: int,
+        total_questions: int,
+        dataset_name: str,
+        top_k: int,
+        model_name: str,
+        llm_provider: str,
+        skip_data_loading: bool,
+        logger: logging.Logger
+    ) -> Dict[str, Any]:
+    """Evaluate a single question with optional data loading."""
+    async with semaphore:
+        logger.info(f"\n--- Processing Question {question_number}/{total_questions} ---")
+
+        question_id = data_sample.get('question_id', f"q_{uuid.uuid4().hex[:8]}")
+        question_text = data_sample.get('question')
+        choices = data_sample.get('choices')
+        correct_choice_index = data_sample.get('correct_choice_index')
+
+        # Data for loading (if not skipping)
+        haystack_session_ids = data_sample.get('haystack_session_ids', [])
+        haystack_sessions_data = data_sample.get('haystack_sessions', [])
+
+        if not all([question_text, choices, correct_choice_index is not None]):
+            logger.error(f"Question {question_number} (ID: {question_id}): Missing required fields for evaluation. Skipping.")
+            return {
+                "question_id": question_id,
+                "question_text": question_text,
+                "status": "SKIPPED - Missing data",
+                "query_time": 0.0
+            }
+
+        logger.info(f"Question {question_number} (ID: {question_id}): {question_text}")
+
+        try:
+            # Step 1: Initialize MemFuse instance for this question
+            user_name = question_id  # Use question_id as user name for data isolation
+            agent_name = "agent_default"
+
+            logger.info(f"Initializing MemFuse for Q{question_number}...")
+            query_memory_instance = await memfuse_client.init(
+                user=user_name,
+                agent=agent_name,
+            )
+
+            # Step 2: Load haystack data if not skipping
+            if not skip_data_loading:
+                if haystack_sessions_data and haystack_session_ids:
+                    logger.info(f"Loading {len(haystack_sessions_data)} haystack sessions for Q{question_number}...")
+
+                    for session_id, messages_for_session in zip(haystack_session_ids, haystack_sessions_data):
+                        if not messages_for_session:
+                            logger.warning(f"Q{question_number}: Skipping empty session '{session_id}'")
+                            continue
+
+                        logger.info(f"Loading session '{session_id}' for Q{question_number}")
+
+                        # Create memory instance for this session
+                        session_memory_instance = await memfuse_client.init(
+                            user=user_name,
+                            agent=agent_name,
+                            session=session_id
+                        )
+
+                        # Convert messages to MemFuse format
+                        memfuse_messages = convert_messages_for_memfuse(messages_for_session, dataset_name)
+
+                        logger.info(f"Adding {len(memfuse_messages)} messages to session '{session_id}'")
+                        add_result = await session_memory_instance.add(memfuse_messages)
+
+                        if add_result.get("status") == "success":
+                            logger.info(f"Successfully loaded session '{session_id}' for Q{question_number}")
+                        else:
+                            logger.error(f"Failed to load session '{session_id}' for Q{question_number}: {add_result}")
+                            continue
+
+                    logger.info(f"Q{question_number}: Loaded haystack data successfully")
+                else:
+                    logger.warning(f"Q{question_number}: No haystack sessions data found")
+
+            # Step 3: Test the question with MemFuse integration
+            formatted_question = f"{question_text}\n\nChoices:\n"
+            for j, choice in enumerate(choices):
+                formatted_question += f"{j}. {choice}\n"
+
+            logger.info(f"Testing Q{question_number} with MemFuse {llm_provider}...")
+            llm_response_model = await _call_memfuse(
+                query=formatted_question,
+                choices_length=len(choices),
+                model_name=model_name,
+                memory_instance=query_memory_instance,
+                llm_provider=llm_provider,
+                max_retries=20,
+                logger=logger
+            )
+
+            model_choice_idx = llm_response_model.index
+            model_explanation = llm_response_model.reasoning
+            is_correct = (model_choice_idx == correct_choice_index)
+
+            # Capture retrieval debug info and timing from the SDK
+            retrieval_debug = get_retrieval_debug_info(llm_provider)
+            retrieval_timing = get_retrieval_timing_info(llm_provider)
+
+            retrieved_memories_count = 0
+            query_duration = retrieval_timing or 0.0  # Default to 0 if timing not available
+
+            # Calculate retrieval metrics for LME dataset
+            retrieval_metrics = {}
+            if dataset_name == "lme":
+                haystack_sessions = data_sample.get('haystack_sessions', [])
+                if haystack_sessions and retrieval_debug:
+                    # Get the correct answer text
+                    answer_text = choices[correct_choice_index] if correct_choice_index < len(choices) else ""
+                    retrieved_memories = retrieval_debug.get("data", {}).get("results", [])
+
+                    # Calculate enhanced metrics (primary)
+                    retrieval_metrics = calculate_retrieval_metrics(
+                        haystack_sessions,
+                        retrieved_memories,
+                        logger
+                    )
+                    logger.info(f"Q{question_number} retrieval metrics - "
+                              f"Precision: {retrieval_metrics['precision']:.3f}, "
+                              f"Recall: {retrieval_metrics['recall']:.3f}, "
+                              f"F1: {retrieval_metrics['f1']:.3f}")
+
+            retrieved_memories_summary = None
+            if retrieval_debug:
+                results = retrieval_debug.get("data", {}).get("results", [])
+                retrieved_memories_count = len(results)
+                logger.info(f"MemFuse query for Q{question_number} took {query_duration * 1000:.2f} ms.")
+                # Create a summary for logging failed questions
+                if not is_correct and results:
+                    retrieved_memories_summary = []
+                    for result in results[:3]:  # Show first 3 for brevity
+                        content = result.get("content", "")[:100]  # Truncate long content
+                        score = result.get("score", 0)
+                        retrieved_memories_summary.append(f"Score:{score:.3f} Content:{content}...")
+                    logger.info(f"Q{question_number} FAILED - Retrieved {retrieved_memories_count} memories: {retrieved_memories_summary}")
+                elif not is_correct:
+                    logger.info(f"Q{question_number} FAILED - No memories retrieved from RAG")
+            else:
+                logger.warning(f"No retrieval debug info available for Q{question_number}")
+
+            logger.info(f"--- Q{question_number} RESULT ---")
+            logger.info(f"Question: {question_text}")
+            logger.info(f"LLM's Choice: {model_choice_idx} ('{choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index'}')")
+            logger.info(f"Correct Choice: {correct_choice_index} ('{choices[correct_choice_index]}')")
+            logger.info(f"Result: {'CORRECT' if is_correct else 'INCORRECT'}")
+            logger.info(f"LLM's Explanation: {model_explanation}")
+
+            return {
+                "question_id": question_id,
+                "question_text": question_text,
+                "model_choice_idx": model_choice_idx,
+                "model_choice_text": choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index',
+                "correct_choice_idx": correct_choice_index,
+                "correct_choice_text": choices[correct_choice_index],
+                "is_correct": is_correct,
+                "explanation": model_explanation,
+                "top_k": top_k,
+                "retrieval_time_ms": query_duration * 1000,
+                "retry_count": llm_response_model.retry_count,
+                "failed_after_retries": llm_response_model.failed_after_retries,
+                "retrieved_memories_count": retrieved_memories_count,
+                "retrieval_debug_available": retrieval_debug is not None,
+                "query_time": query_duration,
+                # Add retrieval metrics
+                **retrieval_metrics
+            }
+
+        except ConnectionError as e:
+            error_msg = f"Connection error with MemFuse server for Q{question_number} (ID: {question_id}): {e}"
+            logger.error(error_msg)
+            return {
+                "question_id": question_id,
+                "question_text": question_text,
+                "status": f"FAILED - ConnectionError: {e}",
+                "query_time": 0.0
+            }
+        except Exception as e:
+            error_msg = f"Unexpected error for Q{question_number} (ID: {question_id}): {e}"
+            logger.error(error_msg, exc_info=True)
+            return {
+                "question_id": question_id,
+                "question_text": question_text,
+                "status": f"FAILED - Exception: {e}",
+                "query_time": 0.0
+            }
+
+
 async def run_question_by_question_evaluation(
         dataset: List[Dict[str, Any]],
         dataset_name: str,
@@ -1486,7 +1681,7 @@ async def run_question_by_question_evaluation(
     from benchmarks.recorder import BenchmarkRecorder
     
     logger.info(f"Starting question-by-question benchmark evaluation for {len(dataset)} questions...")
-    logger.info(f"Using {llm_provider} model: {model_name}, TOP_K: {top_k}")
+    logger.info(f"Using {llm_provider} model: {model_name}, TOP_K: {top_k}, Concurrent: {concurrent}")
     logger.info(f"Data loading: {'SKIPPED' if skip_data_loading else 'ENABLED'}")
     
     # Initialize recorder
@@ -1504,293 +1699,62 @@ async def run_question_by_question_evaluation(
     
     # Use async context manager for proper resource cleanup
     async with AsyncMemFuse() as memfuse_client:
+        # Create semaphore to control concurrency
+        semaphore = asyncio.Semaphore(concurrent)
+
+        # Create tasks for concurrent evaluation
+        tasks = []
         for i, data_sample in enumerate(dataset):
             question_number = i + 1
-            logger.info(f"\n--- Processing Question {question_number}/{len(dataset)} ---")
-            
-            question_id = data_sample.get('question_id', f"q_{uuid.uuid4().hex[:8]}")
-            question_text = data_sample.get('question')
-            choices = data_sample.get('choices')
-            correct_choice_index = data_sample.get('correct_choice_index')
-            
-            # Data for loading (if not skipping)
-            haystack_session_ids = data_sample.get('haystack_session_ids', [])
-            haystack_sessions_data = data_sample.get('haystack_sessions', [])
-            
-            if not all([question_text, choices, correct_choice_index is not None]):
-                logger.error(f"Question {question_number} (ID: {question_id}): Missing required fields for evaluation. Skipping.")
+            task = _evaluate_single_question_with_data_loading(
+                semaphore=semaphore,
+                memfuse_client=memfuse_client,
+                data_sample=data_sample,
+                question_number=question_number,
+                total_questions=len(dataset),
+                dataset_name=dataset_name,
+                top_k=top_k,
+                model_name=model_name,
+                llm_provider=llm_provider,
+                skip_data_loading=skip_data_loading,
+                logger=logger
+            )
+            tasks.append(task)
+
+        # Execute all tasks concurrently
+        logger.info(f"Executing {len(tasks)} evaluation tasks with "
+                    f"concurrency limit of {concurrent}...")
+
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results
+        for result in results_list:
+            if isinstance(result, Exception):
+                logger.error(f"Task failed with exception: {result}")
                 results_summary.append({
-                    "question_id": question_id,
-                    "question_text": question_text,
-                    "status": "SKIPPED - Missing data"
+                    "question_id": "unknown",
+                    "question_text": "unknown",
+                    "status": f"FAILED - Exception: {result}"
                 })
                 continue
-            
-            logger.info(f"Question {question_number} (ID: {question_id}): {question_text}")
-            
-            user_name_for_test = question_id
-            agent_name_for_test = "agent_default"
-            
-            try:
-                # Step 1: Load haystack data for this question (unless skipping)
-                if not skip_data_loading:
-                    if not all([haystack_session_ids, haystack_sessions_data]):
-                        logger.error(f"Question {question_number} (ID: {question_id}): Missing haystack data. Skipping.")
-                        results_summary.append({
-                            "question_id": question_id,
-                            "question_text": question_text,
-                            "status": "SKIPPED - Missing haystack data"
-                        })
-                        continue
-                    
-                    logger.info(f"Loading {len(haystack_sessions_data)} haystack sessions for Q{question_number}...")
-                    
-                    for session_id, messages_for_session in zip(haystack_session_ids, haystack_sessions_data):
-                        if not messages_for_session:
-                            logger.warning(f"Skipping empty session '{session_id}' for Q{question_number}")
-                            continue
-                        
-                        logger.info(f"Loading session '{session_id}' for Q{question_number}")
-                        
-                        # Create memory instance for this session
-                        session_memory_instance = await memfuse_client.init(
-                            user=user_name_for_test,
-                            agent=agent_name_for_test,
-                            session=session_id
-                        )
-                        
-                        # Convert messages to MemFuse format
-                        memfuse_messages = convert_messages_for_memfuse(messages_for_session, dataset_type)
-                        
-                        logger.info(f"Adding {len(memfuse_messages)} messages to session '{session_id}'")
-                        add_result = await session_memory_instance.add(memfuse_messages)
-                        
-                        if add_result.get("status") == "success":
-                            logger.info(f"Successfully loaded session '{session_id}' for Q{question_number}")
-                        else:
-                            logger.error(f"Failed to load session '{session_id}' for Q{question_number}: {add_result}")
-                            continue
-                
-                # Step 2: Create query memory instance (this will aggregate from all sessions)
-                logger.info(f"Creating query memory instance for Q{question_number}...")
-                query_memory_instance = await memfuse_client.init(
-                    user=user_name_for_test,
-                    agent=agent_name_for_test,
-                )
-                
-                # Step 3: Test the question with MemFuse integration
-                formatted_question = f"{question_text}\n\nChoices:\n"
-                for j, choice in enumerate(choices):
-                    formatted_question += f"{j}. {choice}\n"
-                
-                logger.info(f"Testing Q{question_number} with MemFuse {llm_provider}...")
-                llm_response_model = await _call_memfuse(
-                    query=formatted_question,
-                    choices_length=len(choices),
-                    model_name=model_name,
-                    memory_instance=query_memory_instance,
-                    llm_provider=llm_provider,
-                    max_retries=20,
-                    logger=logger
-                )
-                
-                # Debug: Access prompt context immediately after LLM call
-                if llm_provider == "gemini":
-                    from src.memfuse.llm.gemini_adapter import get_last_prompt_context
-                    prompt_context = get_last_prompt_context()
-                    if prompt_context:
-                        logger.info("=== PROMPT CONTEXT DEBUG ===")
-                        composed_prompt = prompt_context.compose_for_gemini()
-                        for i, msg in enumerate(composed_prompt):
-                            logger.info(f"PROMPT PART {i+1} [{msg['role'].upper()}]: {msg['content'][:500]}...")
-                        logger.info("=== END PROMPT CONTEXT DEBUG ===")
-                    else:
-                        logger.info("No prompt context available for debugging")
-                elif llm_provider == "openai":
-                    from src.memfuse.llm.openai_adapter import get_last_prompt_context
-                    prompt_context = get_last_prompt_context()
-                    if prompt_context:
-                        logger.info("=== PROMPT CONTEXT DEBUG ===")
-                        composed_prompt = prompt_context.compose_for_openai()
-                        for i, msg in enumerate(composed_prompt):
-                            logger.info(f"PROMPT PART {i+1} [{msg['role'].upper()}]: {msg['content'][:500]}...")
-                        logger.info("=== END PROMPT CONTEXT DEBUG ===")
-                    else:
-                        logger.info("No prompt context available for debugging")
-                elif llm_provider == "anthropic":
-                    from src.memfuse.llm.anthropic_adapter import get_last_prompt_context
-                    prompt_context = get_last_prompt_context()
-                    if prompt_context:
-                        logger.info("=== PROMPT CONTEXT DEBUG ===")
-                        system_prompt, anthropic_messages = prompt_context.compose_for_anthropic()
-                        logger.info(f"SYSTEM PROMPT: {system_prompt[:500]}...")
-                        for i, msg in enumerate(anthropic_messages):
-                            logger.info(f"PROMPT PART {i+1} [{msg['role'].upper()}]: {msg['content'][:500]}...")
-                        logger.info("=== END PROMPT CONTEXT DEBUG ===")
-                    else:
-                        logger.info("No prompt context available for debugging")
-                
-                model_choice_idx = llm_response_model.index
-                model_explanation = llm_response_model.reasoning
-                is_correct = (model_choice_idx == correct_choice_index)
-                
-                # Track retry statistics
-                total_retries += llm_response_model.retry_count
-                if llm_response_model.failed_after_retries:
-                    final_failures += 1
-                
-                if is_correct:
+
+            results_summary.append(result)
+
+            # Collect statistics
+            if result.get("is_correct") is not None:
+                if result["is_correct"]:
                     correct_answers_count += 1
-                
-                # Capture retrieval debug info and timing from the SDK
-                retrieval_debug = get_retrieval_debug_info(llm_provider)
-                retrieval_timing = get_retrieval_timing_info(llm_provider)
-                
-                retrieved_memories_count = 0
-                query_duration = retrieval_timing or 0.0
-                all_query_times.append(query_duration)
-                
-                # Calculate retrieval metrics for LME dataset
-                retrieval_metrics = {}
-                if dataset_name == "lme":
-                    haystack_sessions = data_sample.get('haystack_sessions', [])
-                    if haystack_sessions and retrieval_debug:
-                        # Get the correct answer text
-                        answer_text = choices[correct_choice_index] if correct_choice_index < len(choices) else ""
-                        retrieved_memories = retrieval_debug.get("data", {}).get("results", [])
-                        
-                        # Calculate enhanced metrics (primary)
-                        enhanced_metrics = calculate_enhanced_retrieval_metrics(
-                            answer_text=answer_text,
-                            haystack_sessions=haystack_sessions,
-                            retrieved_memories=retrieved_memories,
-                            logger=logger
-                        )
-                        
-                        # Also calculate legacy metrics for comparison
-                        answer_messages = extract_answer_containing_messages(haystack_sessions)
-                        legacy_metrics = calculate_retrieval_metrics(
-                            answer_messages, 
-                            retrieved_memories,
-                            logger
-                        )
-                        
-                        # Use enhanced metrics as primary, but include both for comparison
-                        retrieval_metrics = enhanced_metrics.copy()
-                        retrieval_metrics.update({
-                            "legacy_precision": legacy_metrics["precision"],
-                            "legacy_recall": legacy_metrics["recall"], 
-                            "legacy_f1": legacy_metrics["f1"]
-                        })
-                        
-                        logger.info(f"Q{question_number} ENHANCED retrieval metrics - "
-                                  f"Precision: {enhanced_metrics['precision']:.3f}, "
-                                  f"Recall: {enhanced_metrics['recall']:.3f}, "
-                                  f"F1: {enhanced_metrics['f1']:.3f}")
-                        logger.info(f"Q{question_number} Legacy metrics - "
-                                  f"Precision: {legacy_metrics['precision']:.3f}, "
-                                  f"Recall: {legacy_metrics['recall']:.3f}, "
-                                  f"F1: {legacy_metrics['f1']:.3f}")
-                        
-                        # Enhanced debug logging for detailed inspection
-                        logger.info(f"=== RETRIEVAL DEBUG FOR Q{question_number} ({question_id}) ===")
-                        logger.info(f"Question: {question_text}")
-                        logger.info(f"Expected Answer: '{answer_text}'")
-                        
-                        # Show enhanced metrics breakdown
-                        flagged_msgs, substring_msgs = find_answer_containing_content(haystack_sessions, answer_text)
-                        logger.info(f"\n📝 ANSWER CONTENT IN HAYSTACK:")
-                        logger.info(f"  Flagged messages (has_answer=True): {len(flagged_msgs)}")
-                        logger.info(f"  Substring matches: {len(substring_msgs)}")
-                        logger.info(f"  Total answer content: {enhanced_metrics['total_answer_content_count']}")
-                        
-                        for i, msg in enumerate(flagged_msgs):
-                            logger.info(f"    Flagged {i+1}: '{msg[:150]}{'...' if len(msg) > 150 else ''}'")
-                        for i, msg in enumerate(substring_msgs[:3]):  # Show first 3 substring matches
-                            logger.info(f"    Substring {i+1}: '{msg[:150]}{'...' if len(msg) > 150 else ''}'")
-                        
-                        logger.info(f"\n🔍 RETRIEVED MEMORIES ({len(retrieved_memories)}):")
-                        for i, memory in enumerate(retrieved_memories):
-                            content = memory.get("content", "")
-                            score = memory.get("score", 0)
-                            logger.info(f"  Memory {i+1} (Score: {score:.3f}): '{content[:150]}{'...' if len(content) > 150 else ''}'")
-                        
-                        logger.info(f"\n🔄 ENHANCED MATCHING ANALYSIS:")
-                        logger.info(f"  Flagged hits: {enhanced_metrics['flagged_hits']}/{enhanced_metrics['flagged_messages_count']}")
-                        logger.info(f"  Substring hits: {enhanced_metrics['substring_hits']}/{enhanced_metrics['substring_messages_count']}")
-                        logger.info(f"  Total hits: {enhanced_metrics['total_hits']}/{enhanced_metrics['total_answer_content_count']}")
-                        logger.info(f"  Enhanced Precision: {enhanced_metrics['precision']:.3f}")
-                        logger.info(f"  Enhanced Recall: {enhanced_metrics['recall']:.3f}")
-                        logger.info(f"  Enhanced F1: {enhanced_metrics['f1']:.3f}")
-                        
-                        logger.info(f"\n📊 LEGACY COMPARISON:")
-                        logger.info(f"  Legacy Precision: {legacy_metrics['precision']:.3f}")
-                        logger.info(f"  Legacy Recall: {legacy_metrics['recall']:.3f}")
-                        logger.info(f"  Legacy F1: {legacy_metrics['f1']:.3f}")
-                        
-                        logger.info(f"=== END RETRIEVAL DEBUG Q{question_number} ===\n")
-                
-                if retrieval_debug:
-                    results = retrieval_debug.get("data", {}).get("results", [])
-                    retrieved_memories_count = len(results)
-                    logger.info(f"MemFuse query for Q{question_number} took {query_duration * 1000:.2f} ms, retrieved {retrieved_memories_count} memories.")
-                    
-                    # Log failed questions with memory details
-                    if not is_correct and results:
-                        retrieved_memories_summary = []
-                        for result in results[:3]:  # Show first 3 for brevity
-                            content = result.get("content", "")[:100]  # Truncate long content
-                            score = result.get("score", 0)
-                            retrieved_memories_summary.append(f"Score:{score:.3f} Content:{content}...")
-                        logger.info(f"Q{question_number} FAILED - Retrieved memories: {retrieved_memories_summary}")
-                    elif not is_correct:
-                        logger.info(f"Q{question_number} FAILED - No memories retrieved")
-                else:
-                    logger.warning(f"No retrieval debug info available for Q{question_number}")
-                
-                logger.info(f"--- Q{question_number} RESULT ---")
-                logger.info(f"Question: {question_text}")
-                logger.info(f"LLM's Choice: {model_choice_idx} ('{choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index'}')")
-                logger.info(f"Correct Choice: {correct_choice_index} ('{choices[correct_choice_index]}')")
-                logger.info(f"Result: {'✅ CORRECT' if is_correct else '❌ INCORRECT'}")
-                logger.info(f"LLM's Explanation: {model_explanation}")
-                
-                results_summary.append({
-                    "question_id": question_id,
-                    "question_text": question_text,
-                    "model_choice_idx": model_choice_idx,
-                    "model_choice_text": choices[model_choice_idx] if 0 <= model_choice_idx < len(choices) else 'Invalid Index',
-                    "correct_choice_idx": correct_choice_index,
-                    "correct_choice_text": choices[correct_choice_index],
-                    "is_correct": is_correct,
-                    "explanation": model_explanation,
-                    "top_k": top_k,
-                    "retrieval_time_ms": query_duration * 1000,
-                    "retry_count": llm_response_model.retry_count,
-                    "failed_after_retries": llm_response_model.failed_after_retries,
-                    "retrieved_memories_count": retrieved_memories_count,
-                    "retrieval_debug_available": retrieval_debug is not None,
-                    # Add retrieval metrics
-                    **retrieval_metrics
-                })
-                
-            except ConnectionError as e:
-                error_msg = f"Connection error with MemFuse server for Q{question_number} (ID: {question_id}): {e}"
-                logger.error(error_msg)
-                results_summary.append({
-                    "question_id": question_id,
-                    "question_text": question_text,
-                    "status": f"FAILED - ConnectionError: {e}"
-                })
-            except Exception as e:
-                error_msg = f"Unexpected error for Q{question_number} (ID: {question_id}): {e}"
-                logger.error(error_msg, exc_info=True)
-                results_summary.append({
-                    "question_id": question_id,
-                    "question_text": question_text,
-                    "status": f"FAILED - Exception: {e}"
-                })
-        
+
+            if "query_time" in result:
+                all_query_times.append(result["query_time"])
+
+            # Collect retry statistics
+            if ("retry_count" in result and
+                    isinstance(result["retry_count"], int)):
+                total_retries += result["retry_count"]
+            if result.get("failed_after_retries", False):
+                final_failures += 1
+
         # Calculate total elapsed time
         total_end_time = time.perf_counter()
         total_elapsed_time = total_end_time - total_start_time
