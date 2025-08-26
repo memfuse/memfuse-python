@@ -284,7 +284,7 @@ async def main():
     parser.add_argument("--question-ids-file", type=str, help="File containing question IDs to test (one per line)")
     parser.add_argument("--top-k", type=int, help="Override default TOP_K value for memory retrieval")
     parser.add_argument("--llm-provider", type=str, choices=["gemini", "openai", "anthropic"],
-                        default="gemini", help="LLM provider to use (default: gemini)")
+                        default="openai", help="LLM provider to use (default: gemini)")
 
     # Parse args partially to get the provider first
     known_args, _ = parser.parse_known_args()
