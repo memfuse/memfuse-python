@@ -1582,15 +1582,37 @@ async def _evaluate_single_question_with_data_loading(
                     retrieved_memories = retrieval_debug.get("data", {}).get("results", [])
 
                     # Calculate enhanced metrics (primary)
-                    retrieval_metrics = calculate_retrieval_metrics(
-                        haystack_sessions,
+                    enhanced_metrics = calculate_enhanced_retrieval_metrics(
+                        answer_text=answer_text,
+                        haystack_sessions=haystack_sessions,
+                        retrieved_memories=retrieved_memories,
+                        logger=logger
+                    )
+                    
+                    # Also calculate legacy metrics for comparison
+                    answer_messages = extract_answer_containing_messages(haystack_sessions)
+                    legacy_metrics = calculate_retrieval_metrics(
+                        answer_messages, 
                         retrieved_memories,
                         logger
                     )
-                    logger.info(f"Q{question_number} retrieval metrics - "
-                              f"Precision: {retrieval_metrics['precision']:.3f}, "
-                              f"Recall: {retrieval_metrics['recall']:.3f}, "
-                              f"F1: {retrieval_metrics['f1']:.3f}")
+                    
+                    # Use enhanced metrics as primary, but include both for comparison
+                    retrieval_metrics = enhanced_metrics.copy()
+                    retrieval_metrics.update({
+                        "legacy_precision": legacy_metrics["precision"],
+                        "legacy_recall": legacy_metrics["recall"], 
+                        "legacy_f1": legacy_metrics["f1"]
+                    })
+                    
+                    logger.info(f"Q{question_number} ENHANCED retrieval metrics - "
+                              f"Precision: {enhanced_metrics['precision']:.3f}, "
+                              f"Recall: {enhanced_metrics['recall']:.3f}, "
+                              f"F1: {enhanced_metrics['f1']:.3f}")
+                    logger.info(f"Q{question_number} Legacy metrics - "
+                              f"Precision: {legacy_metrics['precision']:.3f}, "
+                              f"Recall: {legacy_metrics['recall']:.3f}, "
+                              f"F1: {legacy_metrics['f1']:.3f}")
 
             retrieved_memories_summary = None
             if retrieval_debug:
