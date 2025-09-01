@@ -1469,6 +1469,7 @@ async def _evaluate_single_question_with_data_loading(
         model_name: str,
         llm_provider: str,
         skip_data_loading: bool,
+        retrieval_verbose: bool,
         logger: logging.Logger
     ) -> Dict[str, Any]:
     """Evaluate a single question with optional data loading."""
@@ -1615,10 +1616,24 @@ async def _evaluate_single_question_with_data_loading(
                               f"F1: {legacy_metrics['f1']:.3f}")
 
             retrieved_memories_summary = None
+            retrieved_memories_content = None
             if retrieval_debug:
                 results = retrieval_debug.get("data", {}).get("results", [])
                 retrieved_memories_count = len(results)
                 logger.info(f"MemFuse query for Q{question_number} took {query_duration * 1000:.2f} ms.")
+                
+                # Capture full retrieved memories content if verbose flag is enabled
+                if retrieval_verbose and results:
+                    retrieved_memories_content = []
+                    for result in results:
+                        memory_entry = {
+                            "content": result.get("content", ""),
+                            "score": result.get("score", 0.0),
+                            "metadata": {k: v for k, v in result.items() if k not in ["content", "score"]}
+                        }
+                        retrieved_memories_content.append(memory_entry)
+                    logger.info(f"Q{question_number}: Captured {len(retrieved_memories_content)} retrieved memories for detailed analysis")
+                
                 # Create a summary for logging failed questions
                 if not is_correct and results:
                     retrieved_memories_summary = []
@@ -1639,7 +1654,7 @@ async def _evaluate_single_question_with_data_loading(
             logger.info(f"Result: {'CORRECT' if is_correct else 'INCORRECT'}")
             logger.info(f"LLM's Explanation: {model_explanation}")
 
-            return {
+            result = {
                 "question_id": question_id,
                 "question_text": question_text,
                 "model_choice_idx": model_choice_idx,
@@ -1658,6 +1673,12 @@ async def _evaluate_single_question_with_data_loading(
                 # Add retrieval metrics
                 **retrieval_metrics
             }
+            
+            # Add retrieved memories content if available
+            if retrieved_memories_content is not None:
+                result["retrieved_memories_content"] = retrieved_memories_content
+                
+            return result
 
         except ConnectionError as e:
             error_msg = f"Connection error with MemFuse server for Q{question_number} (ID: {question_id}): {e}"
@@ -1688,6 +1709,7 @@ async def run_question_by_question_evaluation(
         llm_provider: str = "openai",
         skip_data_loading: bool = False,
         concurrent: int = 1,
+        retrieval_verbose: bool = False,
         logger: Optional[logging.Logger] = None
     ) -> BenchmarkResults:
     """Run benchmark evaluation with question-by-question data loading and testing.
@@ -1752,6 +1774,7 @@ async def run_question_by_question_evaluation(
                 model_name=model_name,
                 llm_provider=llm_provider,
                 skip_data_loading=skip_data_loading,
+                retrieval_verbose=retrieval_verbose,
                 logger=logger
             )
             tasks.append(task)
