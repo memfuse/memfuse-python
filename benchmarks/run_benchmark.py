@@ -205,8 +205,8 @@ def print_benchmark_summary(results, dataset_name):
                 print(f"     Model: {result.get('model_choice_idx')} | Correct: {result.get('correct_choice_idx')}")
                 if 'retrieval_time_ms' in result:
                     print(f"     Retrieval: {result['retrieval_time_ms']:.2f}ms")
-                # Show retrieval metrics for LME dataset
-                if dataset_name == "lme" and 'precision' in result:
+                # Show retrieval metrics for LME and MSC datasets
+                if dataset_name in ["lme", "msc"] and 'precision' in result:
                     print(f"     Retrieval Metrics - P: {result['precision']:.3f}, R: {result['recall']:.3f}, F1: {result['f1']:.3f}")
             else:
                 print(f"Q{i+1}: {result.get('question_id', 'N/A')} - ⚠️ {result.get('status', 'UNKNOWN')}")
@@ -229,8 +229,8 @@ def print_benchmark_summary(results, dataset_name):
     else:
         print(f"⚠️  {results.total_count - results.success_count} questions failed evaluation")
     
-    # Retrieval evaluation metrics (LME only)
-    if results.retrieval_metrics_available and dataset_name == "lme":
+    # Retrieval evaluation metrics (LME and MSC)
+    if results.retrieval_metrics_available and dataset_name in ["lme", "msc"]:
         print(f"\n🎯 RETRIEVAL EVALUATION METRICS:")
         print(f"   Average Precision: {results.avg_precision:.3f}")
         print(f"   Average Recall: {results.avg_recall:.3f}")
@@ -284,20 +284,18 @@ async def main():
     parser.add_argument("--question-ids-file", type=str, help="File containing question IDs to test (one per line)")
     parser.add_argument("--top-k", type=int, help="Override default TOP_K value for memory retrieval")
     parser.add_argument("--llm-provider", type=str, choices=["gemini", "openai", "anthropic"],
-                        default="openai", help="LLM provider to use (default: gemini)")
-
-    # Parse args partially to get the provider first
-    known_args, _ = parser.parse_known_args()
-    default_model = get_default_model(known_args.llm_provider)
-
-    parser.add_argument("--model", type=str, default=default_model,
-                        help=f"Model name (default for {known_args.llm_provider}: {default_model})")
+                        default="gemini", help="LLM provider to use (default: gemini)")
+    parser.add_argument("--model", type=str, help="Model name (provider-specific default will be used if not specified)")
     parser.add_argument("--no-data-loading", action="store_true",
                         help="Skip loading haystack data per question (assumes data already loaded)")
     parser.add_argument("--concurrent", type=int, default=1,
                         help="Number of concurrent evaluations (default: 1)")
     
     args = parser.parse_args()
+    
+    # Set provider-specific default model if not specified
+    if not args.model:
+        args.model = get_default_model(args.llm_provider)
     
     # Validate question-types argument
     if args.question_types and args.dataset != "lme":

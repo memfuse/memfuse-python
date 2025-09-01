@@ -1072,11 +1072,11 @@ async def run_benchmark_evaluation(
         logger.info(f"Total retries: {total_retries}")
         logger.info(f"Final failures after all retries: {final_failures}")
         
-        # Calculate average retrieval metrics for LME dataset
+        # Calculate average retrieval metrics for LME and MSC datasets
         avg_precision = avg_recall = avg_f1 = 0.0
         retrieval_metrics_available = False
         
-        if dataset_name == "lme":
+        if dataset_name in ["lme", "msc"]:
             # Extract retrieval metrics from valid results that have them
             results_with_metrics = [
                 item for item in valid_results 
@@ -1089,7 +1089,7 @@ async def run_benchmark_evaluation(
                 avg_f1 = sum(item['f1'] for item in results_with_metrics) / len(results_with_metrics)
                 retrieval_metrics_available = True
                 
-                logger.info(f"=== RETRIEVAL EVALUATION METRICS (LME) ===")
+                logger.info(f"=== RETRIEVAL EVALUATION METRICS ({dataset_name.upper()}) ===")
                 logger.info(f"Questions with retrieval metrics: {len(results_with_metrics)}/{len(valid_results)}")
                 logger.info(f"Average Precision: {avg_precision:.3f}")
                 logger.info(f"Average Recall: {avg_recall:.3f}")
@@ -1217,9 +1217,13 @@ def find_answer_containing_content(haystack_sessions: List[List[Dict[str, Any]]]
         - flagged_messages: Content from messages with has_answer=True
         - substring_messages: Content from other messages containing answer substring
     """
+    import re
+    
     flagged_messages = []
     substring_messages = []
-    answer_text_lower = answer_text.lower().strip()
+    
+    # Normalize answer text: lowercase, strip, remove punctuation for better matching
+    answer_text_normalized = re.sub(r'[^\w\s]', '', answer_text.lower().strip())
     
     for session in haystack_sessions:
         for message in session:
@@ -1228,10 +1232,11 @@ def find_answer_containing_content(haystack_sessions: List[List[Dict[str, Any]]]
                 continue
                 
             content_lower = content.lower()
+            content_normalized = re.sub(r'[^\w\s]', '', content_lower)
             
             if message.get("has_answer") is True:
                 flagged_messages.append(content)
-            elif answer_text_lower in content_lower:
+            elif answer_text_normalized in content_normalized:
                 substring_messages.append(content)
     
     return flagged_messages, substring_messages
@@ -1309,7 +1314,9 @@ def calculate_enhanced_retrieval_metrics(
     # Check retrieved memories for matches
     flagged_hits = 0
     substring_hits = 0
+    import re
     answer_text_lower = answer_text.lower().strip()
+    answer_text_normalized = re.sub(r'[^\w\s]', '', answer_text_lower)
     
     for memory in retrieved_memories:
         memory_content = memory.get("content", "").strip()
@@ -1317,19 +1324,21 @@ def calculate_enhanced_retrieval_metrics(
             continue
             
         memory_content_lower = memory_content.lower()
+        memory_content_normalized = re.sub(r'[^\w\s]', '', memory_content_lower)
         
         # Check against flagged messages (bidirectional substring match)
         flagged_match = False
         for flagged_msg in flagged_msgs:
             flagged_msg_lower = flagged_msg.lower().strip()
-            if (flagged_msg_lower in memory_content_lower or 
-                memory_content_lower in flagged_msg_lower):
+            flagged_msg_normalized = re.sub(r'[^\w\s]', '', flagged_msg_lower)
+            if (flagged_msg_normalized in memory_content_normalized or 
+                memory_content_normalized in flagged_msg_normalized):
                 flagged_hits += 1
                 flagged_match = True
                 break
         
         # If no flagged match, check for answer substring (avoid double counting)
-        if not flagged_match and answer_text_lower in memory_content_lower:
+        if not flagged_match and answer_text_normalized in memory_content_normalized:
             substring_hits += 1
     
     total_hits = flagged_hits + substring_hits
@@ -1559,13 +1568,17 @@ async def _evaluate_single_question_with_data_loading(
             retrieved_memories_count = 0
             query_duration = retrieval_timing or 0.0  # Default to 0 if timing not available
 
-            # Calculate retrieval metrics for LME dataset
+            # Calculate retrieval metrics for LME and MSC datasets
             retrieval_metrics = {}
-            if dataset_name == "lme":
+            if dataset_name in ["lme", "msc"]:
                 haystack_sessions = data_sample.get('haystack_sessions', [])
                 if haystack_sessions and retrieval_debug:
-                    # Get the correct answer text
-                    answer_text = choices[correct_choice_index] if correct_choice_index < len(choices) else ""
+                    # Get the correct answer text based on dataset type
+                    if dataset_name == "lme":
+                        answer_text = choices[correct_choice_index] if correct_choice_index < len(choices) else ""
+                    elif dataset_name == "msc":
+                        # MSC dataset has the answer in the 'answer' field
+                        answer_text = data_sample.get('answer', '')
                     retrieved_memories = retrieval_debug.get("data", {}).get("results", [])
 
                     # Calculate enhanced metrics (primary)
