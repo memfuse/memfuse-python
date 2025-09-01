@@ -52,7 +52,7 @@ DATASET_CONFIGS = {
 }
 
 
-def save_individual_results(results, dataset_name: str, llm_provider: str):
+def save_individual_results(results, dataset_name: str, llm_provider: str, retrieval_verbose: bool = False):
     """Save detailed individual results to a file for analysis."""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"individual_results_{dataset_name}_{llm_provider}_{timestamp}.txt"
@@ -145,7 +145,21 @@ def save_individual_results(results, dataset_name: str, llm_provider: str):
                     f.write(f"  Recall: {recall:.3f}\n")
                     f.write(f"  F1: {f1:.3f}\n")
                     f.write(f"  Retrieved memories: {retrieved_memories_count}\n\n")
-                    
+                
+                # Display retrieved memories content if verbose and available
+                if retrieval_verbose and 'retrieved_memories_content' in result:
+                    retrieved_memories = result['retrieved_memories_content']
+                    f.write("🧠 RETRIEVED MEMORIES CONTENT:\n")
+                    for i, memory in enumerate(retrieved_memories, 1):
+                        f.write(f"  Memory {i} (Score: {memory['score']:.4f}):\n")
+                        content = memory['content']
+                        # Show first 500 characters, add ellipsis if truncated
+                        if len(content) > 500:
+                            f.write(f"    \"{content[:500]}...\"\n")
+                        else:
+                            f.write(f"    \"{content}\"\n")
+                        f.write("\n")
+                
                 f.write("=" * 80 + "\n\n")
             
             # Summary
@@ -169,27 +183,29 @@ def save_individual_results(results, dataset_name: str, llm_provider: str):
 def print_benchmark_summary(results, dataset_name):
     """Print detailed benchmark summary with histogram visualization."""
     
-    # Collect incorrect question IDs
-    incorrect_question_ids = []
+    # Collect incorrect question IDs with recall flags
+    incorrect_question_data = []
     for result in results.question_results:
         if 'is_correct' in result and not result['is_correct']:
             question_id = result.get('question_id', 'N/A')
             if question_id != 'N/A':
-                incorrect_question_ids.append(question_id)
+                recall = result.get('recall', 0.0)
+                recall_flag = 1 if recall > 0.0 else 0
+                incorrect_question_data.append((question_id, recall_flag))
     
-    # Write incorrect question IDs to file if any exist
-    if incorrect_question_ids:
+    # Write incorrect question IDs with recall flags to CSV file if any exist
+    if incorrect_question_data:
         import datetime
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         results_dir = os.path.join(os.path.dirname(__file__), 'results')
-        filename = f"incorrect_questions_{dataset_name}_{timestamp}.txt"
+        filename = f"incorrect_questions_{dataset_name}_{timestamp}.csv"
         filepath = os.path.join(results_dir, filename)
         
         try:
             os.makedirs(results_dir, exist_ok=True)
             with open(filepath, 'w') as f:
-                for question_id in incorrect_question_ids:
-                    f.write(f"{question_id}\n")
+                for question_id, recall_flag in incorrect_question_data:
+                    f.write(f"{question_id},{recall_flag}\n")
             logger.info(f"Incorrect question IDs saved to: {filepath}")
         except Exception as e:
             logger.error(f"Failed to write incorrect question IDs to file: {e}")
@@ -205,8 +221,8 @@ def print_benchmark_summary(results, dataset_name):
                 print(f"     Model: {result.get('model_choice_idx')} | Correct: {result.get('correct_choice_idx')}")
                 if 'retrieval_time_ms' in result:
                     print(f"     Retrieval: {result['retrieval_time_ms']:.2f}ms")
-                # Show retrieval metrics for LME dataset
-                if dataset_name == "lme" and 'precision' in result:
+                # Show retrieval metrics for LME and MSC datasets
+                if dataset_name in ["lme", "msc"] and 'precision' in result:
                     print(f"     Retrieval Metrics - P: {result['precision']:.3f}, R: {result['recall']:.3f}, F1: {result['f1']:.3f}")
             else:
                 print(f"Q{i+1}: {result.get('question_id', 'N/A')} - ⚠️ {result.get('status', 'UNKNOWN')}")
@@ -229,18 +245,19 @@ def print_benchmark_summary(results, dataset_name):
     else:
         print(f"⚠️  {results.total_count - results.success_count} questions failed evaluation")
     
-    # Retrieval evaluation metrics (LME only)
-    if results.retrieval_metrics_available and dataset_name == "lme":
+    # Retrieval evaluation metrics (LME and MSC)
+    if results.retrieval_metrics_available and dataset_name in ["lme", "msc"]:
         print(f"\n🎯 RETRIEVAL EVALUATION METRICS:")
         print(f"   Average Precision: {results.avg_precision:.3f}")
         print(f"   Average Recall: {results.avg_recall:.3f}")
         print(f"   Average F1 Score: {results.avg_f1:.3f}")
     
     # Show incorrect question IDs if any
-    if incorrect_question_ids:
+    if incorrect_question_data:
+        incorrect_question_ids = [question_id for question_id, _ in incorrect_question_data]
         print(f"\n❌ Incorrect Question IDs ({len(incorrect_question_ids)} total):")
         print(", ".join(incorrect_question_ids))
-        print(f"💾 Incorrect question IDs also saved to benchmarks/results/")
+        print(f"💾 Incorrect question IDs with recall flags saved to benchmarks/results/")
     
     # Retrieval time statistics
     if results.query_times:
@@ -283,19 +300,21 @@ async def main():
     parser.add_argument("--question-types", nargs="+", help="Filter by question types (LME only)")
     parser.add_argument("--question-ids-file", type=str, help="File containing question IDs to test (one per line)")
     parser.add_argument("--top-k", type=int, help="Override default TOP_K value for memory retrieval")
-    parser.add_argument("--llm-provider", type=str, choices=["gemini", "openai", "anthropic"], 
+    parser.add_argument("--llm-provider", type=str, choices=["gemini", "openai", "anthropic"],
                         default="gemini", help="LLM provider to use (default: gemini)")
-    
-    # Parse args partially to get the provider first
-    known_args, _ = parser.parse_known_args()
-    default_model = get_default_model(known_args.llm_provider)
-    
-    parser.add_argument("--model", type=str, default=default_model, 
-                        help=f"Model name (default for {known_args.llm_provider}: {default_model})")
-    parser.add_argument("--no-data-loading", action="store_true", 
+    parser.add_argument("--model", type=str, help="Model name (provider-specific default will be used if not specified)")
+    parser.add_argument("--no-data-loading", action="store_true",
                         help="Skip loading haystack data per question (assumes data already loaded)")
+    parser.add_argument("--concurrent", type=int, default=1,
+                        help="Number of concurrent evaluations (default: 1)")
+    parser.add_argument("--retrieval-verbose", action="store_true",
+                        help="Save and display retrieved memory content in detailed results")
     
     args = parser.parse_args()
+    
+    # Set provider-specific default model if not specified
+    if not args.model:
+        args.model = get_default_model(args.llm_provider)
     
     # Validate question-types argument
     if args.question_types and args.dataset != "lme":
@@ -307,7 +326,16 @@ async def main():
     if args.question_ids_file:
         try:
             with open(args.question_ids_file, 'r') as f:
-                question_ids_from_file = [line.strip() for line in f if line.strip()]
+                question_ids_from_file = []
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        # Handle CSV format (question_id,recall_flag) or plain text (question_id only)
+                        if ',' in line:
+                            question_id = line.split(',')[0].strip()
+                        else:
+                            question_id = line
+                        question_ids_from_file.append(question_id)
             logger.info(f"Loaded {len(question_ids_from_file)} question IDs from {args.question_ids_file}")
             
             # When using question-ids-file, override conflicting options
@@ -372,11 +400,13 @@ async def main():
         model_name=model_name,
         llm_provider=args.llm_provider,
         skip_data_loading=args.no_data_loading,
+        concurrent=args.concurrent,
+        retrieval_verbose=args.retrieval_verbose,
         logger=logger
     )
     
     # Save individual results to file
-    save_individual_results(results, args.dataset, args.llm_provider)
+    save_individual_results(results, args.dataset, args.llm_provider, args.retrieval_verbose)
     
     # Print detailed benchmark summary with visualization
     print_benchmark_summary(results, args.dataset)

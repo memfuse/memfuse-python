@@ -181,3 +181,4 @@ results/
 
 benchmarks/results/
 .claude/
+.vscode/
