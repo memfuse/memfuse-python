@@ -346,3 +346,25 @@ def test_sync_client_full_cleanup():
         mock_session.close.assert_called_once()
         
         print("✅ Sync client full cleanup works properly") 
+
+
+@pytest.mark.smoke
+def test_version_compatibility_methods_exist():
+    """Test that version compatibility checking methods exist on clients."""
+    from memfuse import AsyncMemFuse, MemFuse
+    
+    async_client = AsyncMemFuse()
+    sync_client = MemFuse()
+    
+    # Check that version compatibility methods exist
+    assert hasattr(async_client, '_check_version_compatibility')
+    assert hasattr(sync_client, '_check_version_compatibility_sync')
+    assert callable(async_client._check_version_compatibility)
+    assert callable(sync_client._check_version_compatibility_sync)
+    
+    # Verify async method is actually async
+    import asyncio
+    assert asyncio.iscoroutinefunction(async_client._check_version_compatibility)
+    assert not asyncio.iscoroutinefunction(sync_client._check_version_compatibility_sync)
+    
+    print("✅ Version compatibility methods are available") 
