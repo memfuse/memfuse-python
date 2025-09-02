@@ -73,7 +73,12 @@ class AgentsApi:
             self._build_url('get_by_name', name=name)
         )
 
-    async def create(self, name: str, description: Optional[str] = None) -> Dict[str, Any]:
+    async def create(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Create a new agent.
 
         Args:
@@ -83,6 +88,7 @@ class AgentsApi:
         Returns:
             Response data
         """
+        extra_headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
         return await self.client._request(
             self._get_method('create'),
             self._build_url('create'),
@@ -90,6 +96,7 @@ class AgentsApi:
                 "name": name,
                 "description": description,
             },
+            extra_headers=extra_headers,
         )
 
     async def update(
@@ -168,7 +175,12 @@ class AgentsApi:
             self._build_url('get_by_name', name=name)
         )
 
-    def create_sync(self, name: str, description: Optional[str] = None) -> Dict[str, Any]:
+    def create_sync(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Create a new agent (sync version).
 
         Args:
@@ -178,6 +190,7 @@ class AgentsApi:
         Returns:
             Response data
         """
+        extra_headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
         return self.client._request_sync(
             self._get_method('create'),
             self._build_url('create'),
@@ -185,6 +198,7 @@ class AgentsApi:
                 "name": name,
                 "description": description,
             },
+            extra_headers=extra_headers,
         )
 
     def update_sync(

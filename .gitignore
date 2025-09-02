@@ -46,6 +46,7 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
+.cursorindexingignore
 *.py,cover
 .hypothesis/
 .pytest_cache/
@@ -182,3 +183,5 @@ results/
 benchmarks/results/
 .claude/
 .vscode/
+
+.specstory/**

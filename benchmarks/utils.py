@@ -1499,7 +1499,7 @@ async def _evaluate_single_question_with_data_loading(
         try:
             # Step 1: Initialize MemFuse instance for this question
             user_name = question_id  # Use question_id as user name for data isolation
-            agent_name = "agent_default"
+            agent_name = "agent_default"  # Keep default agent name
 
             logger.info(f"Initializing MemFuse for Q{question_number}...")
             query_memory_instance = await memfuse_client.init(
@@ -1580,7 +1580,8 @@ async def _evaluate_single_question_with_data_loading(
                     elif dataset_name == "msc":
                         # MSC dataset has the answer in the 'answer' field
                         answer_text = data_sample.get('answer', '')
-                    retrieved_memories = retrieval_debug.get("data", {}).get("results", [])
+                    # Safe access to retrieval_debug to avoid NoneType errors
+                    retrieved_memories = retrieval_debug.get("data", {}).get("results", []) if retrieval_debug else []
 
                     # Calculate enhanced metrics (primary)
                     enhanced_metrics = calculate_enhanced_retrieval_metrics(
