@@ -28,7 +28,7 @@ if tests_dir not in sys.path:
 
 from memfuse import AsyncMemFuse
 from utils.prompts import create_prompt
-from utils.openrouter import call_openrouter
+from utils.openai_compatible import call_openai_compatible
 from utils.config import MEMFUSE_API_KEY, DATASET_CONFIGS
 from utils.summary import print_summary
 from utils.datasets import load_dataset_from_huggingface
@@ -166,10 +166,10 @@ async def run_msc_benchmark_with_results(dataset, logger):
                 choices, 
                 structured_memory_context
             )
-            llm_response_model = call_openrouter(
+            llm_response_model = call_openai_compatible(
                 prompt_for_llm, 
-                "openrouter/openai/gpt-4o-mini", 
-                len(choices),
+                model=None, 
+                choices_length=len(choices),
                 temperature=0.1
             )
             model_choice_idx = llm_response_model.index
