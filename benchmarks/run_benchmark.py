@@ -301,7 +301,7 @@ async def main():
     parser.add_argument("--question-ids-file", type=str, help="File containing question IDs to test (one per line)")
     parser.add_argument("--top-k", type=int, help="Override default TOP_K value for memory retrieval")
     parser.add_argument("--llm-provider", type=str, choices=["gemini", "openai", "anthropic"],
-                        default="gemini", help="LLM provider to use (default: gemini)")
+                        default="openai", help="LLM provider to use (default: openai)")
     parser.add_argument("--model", type=str, help="Model name (provider-specific default will be used if not specified)")
     parser.add_argument("--no-data-loading", action="store_true",
                         help="Skip loading haystack data per question (assumes data already loaded)")
