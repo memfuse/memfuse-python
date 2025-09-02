@@ -4,12 +4,13 @@ import os
 import asyncio
 import threading
 import aiohttp
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any
 import uuid
 import time
+from loguru import logger
 
 from .memory import AsyncMemory
-from .utils import MemFuseHTTPError
+from .utils import MemFuseHTTPError, check_version_compatibility
 from .api import (
     HealthApi,
     UsersApi,
@@ -147,6 +148,50 @@ class AsyncMemFuse:
                 "  poetry run memfuse-core"
             ) from e
 
+    async def _check_version_compatibility(self):
+        """Check SDK and server version compatibility and display warnings if needed."""
+        try:
+            # Get SDK version
+            from . import __version__
+            sdk_version = __version__
+            
+            # If version is placeholder, try to get it from installed package metadata
+            if not sdk_version or sdk_version == "{{version}}":
+                try:
+                    # Try to get version from installed package
+                    from importlib.metadata import version, PackageNotFoundError
+                    try:
+                        sdk_version = version('memfuse')
+                    except PackageNotFoundError:
+                        # Package not installed via pip, skip version check
+                        pass
+                except ImportError:
+                    # Python < 3.8, try backport
+                    try:
+                        from importlib_metadata import version, PackageNotFoundError
+                        try:
+                            sdk_version = version('memfuse')
+                        except PackageNotFoundError:
+                            pass
+                    except ImportError:
+                        pass
+            
+            if not sdk_version or sdk_version == "{{version}}":
+                logger.debug("SDK version not available, skipping version check")
+                return
+            
+            # Get server health information
+            health_data = await self.health.health_check()
+            
+            # Check compatibility and print warning if needed
+            warning = check_version_compatibility(sdk_version, health_data)
+            if warning:
+                print(warning)
+                
+        except Exception as e:
+            # Don't fail init if version check fails
+            logger.debug(f"Version compatibility check failed: {e}")
+
     async def init(
         self,
         user: str,
@@ -163,6 +208,9 @@ class AsyncMemFuse:
         Returns:
             ClientMemory: A client memory instance for the specified user, agent, and session
         """
+        # Check version compatibility
+        await self._check_version_compatibility()
+        
         # Get or create user
         user_name = user
         try:
@@ -499,6 +547,50 @@ class MemFuse:
                 "  poetry run memfuse-core"
             ) from e
 
+    def _check_version_compatibility_sync(self):
+        """Check SDK and server version compatibility and display warnings if needed (sync version)."""
+        try:
+            # Get SDK version
+            from . import __version__
+            sdk_version = __version__
+            
+            # If version is placeholder, try to get it from installed package metadata
+            if not sdk_version or sdk_version == "{{version}}":
+                try:
+                    # Try to get version from installed package
+                    from importlib.metadata import version, PackageNotFoundError
+                    try:
+                        sdk_version = version('memfuse')
+                    except PackageNotFoundError:
+                        # Package not installed via pip, skip version check
+                        pass
+                except ImportError:
+                    # Python < 3.8, try backport
+                    try:
+                        from importlib_metadata import version, PackageNotFoundError
+                        try:
+                            sdk_version = version('memfuse')
+                        except PackageNotFoundError:
+                            pass
+                    except ImportError:
+                        pass
+            
+            if not sdk_version or sdk_version == "{{version}}":
+                logger.debug("SDK version not available, skipping version check")
+                return
+            
+            # Get server health information
+            health_data = self.health.health_check_sync()
+            
+            # Check compatibility and print warning if needed
+            warning = check_version_compatibility(sdk_version, health_data)
+            if warning:
+                print(warning)
+                
+        except Exception as e:
+            # Don't fail init if version check fails
+            logger.debug(f"Version compatibility check failed: {e}")
+
     def init(
         self,
         user: str,
@@ -515,6 +607,9 @@ class MemFuse:
         Returns:
             Memory: A synchronous memory instance.
         """
+        # Check version compatibility
+        self._check_version_compatibility_sync()
+        
         # Get or create user
         user_name = user
         try:
