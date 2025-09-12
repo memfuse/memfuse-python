@@ -81,12 +81,12 @@ class MessagesApi:
         url = self._build_list_url(session_id, limit, sort_by, order, buffer_only)
         return await self.client._request(self._get_method('list'), url)
 
-    async def add(self, session_id: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    async def add(self, session_id: str, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Add messages to a session.
 
         Args:
             session_id: Session ID
-            messages: List of message dictionaries with role and content
+            messages: List of message dictionaries with role, content, and optional metadata
 
         Returns:
             Response data
@@ -118,14 +118,14 @@ class MessagesApi:
         )
 
     async def update(
-        self, session_id: str, message_ids: List[str], new_messages: List[Dict[str, str]]
+        self, session_id: str, message_ids: List[str], new_messages: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """Update messages in a session.
 
         Args:
             session_id: Session ID
             message_ids: List of message IDs
-            new_messages: List of new message dictionaries
+            new_messages: List of new message dictionaries (role, content, optional metadata)
 
         Returns:
             Response data
@@ -181,12 +181,12 @@ class MessagesApi:
         url = self._build_list_url(session_id, limit, sort_by, order, buffer_only)
         return self.client._request_sync(self._get_method('list'), url)
 
-    def add_sync(self, session_id: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    def add_sync(self, session_id: str, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Add messages to a session (sync version).
 
         Args:
             session_id: Session ID
-            messages: List of message dictionaries with role and content
+            messages: List of message dictionaries with role, content, and optional metadata
 
         Returns:
             Response data
@@ -218,7 +218,7 @@ class MessagesApi:
         )
 
     def update_sync(
-        self, session_id: str, message_ids: List[str], new_messages: List[Dict[str, str]]
+        self, session_id: str, message_ids: List[str], new_messages: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """Update messages in a session (sync version).
 

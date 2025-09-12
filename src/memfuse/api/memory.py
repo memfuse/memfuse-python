@@ -1,6 +1,7 @@
 """Memory API client for MemFuse."""
 
 from typing import Dict, List, Optional, Any
+import warnings
 
 from ..models.requests import (
     InitRequest,
@@ -56,6 +57,9 @@ class MemoryApi:
         session_id: str,
         query: str,
         top_k: int = 5,
+        agent_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        # Deprecated: retained for compatibility; ignored in payload
         store_type: Optional[str] = None,
         include_messages: bool = True,
         include_knowledge: bool = True,
@@ -66,19 +70,28 @@ class MemoryApi:
             session_id: Session ID
             query: Query string
             top_k: Number of results to return
-            store_type: Type of store to query
-            include_messages: Whether to include messages in the query
-            include_knowledge: Whether to include knowledge in the query
+            agent_id: Optional agent ID to filter results
+            metadata: Optional metadata to provide additional query context (e.g., {"task": "...", "mode": "..."})
+            store_type: Deprecated; ignored
+            include_messages: Deprecated; ignored
+            include_knowledge: Deprecated; ignored
 
         Returns:
             Response data
         """
+        if store_type is not None or not include_messages or not include_knowledge:
+            warnings.warn(
+                "memory.query: 'store_type', 'include_messages', and 'include_knowledge' are deprecated and ignored in request payload.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         request = QueryRequest(
             query=query,
             top_k=top_k,
-            store_type=store_type,
-            include_messages=include_messages,
-            include_knowledge=include_knowledge,
+            agent_id=agent_id,
+            session_id=session_id,
+            metadata=metadata,
         )
 
         return await self.client._request(
@@ -90,13 +103,13 @@ class MemoryApi:
     async def add(
         self,
         session_id: str,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Add messages to the memory.
 
         Args:
             session_id: Session ID
-            messages: List of message dictionaries with role and content
+            messages: List of message dictionaries with role, content, and optional metadata
 
         Returns:
             Response data
@@ -135,14 +148,14 @@ class MemoryApi:
         self,
         session_id: str,
         message_ids: List[str],
-        new_messages: List[Dict[str, str]],
+        new_messages: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Update messages in the memory.
 
         Args:
             session_id: Session ID
             message_ids: List of message IDs
-            new_messages: List of new message dictionaries
+            new_messages: List of new message dictionaries (role, content, optional metadata)
 
         Returns:
             Response data

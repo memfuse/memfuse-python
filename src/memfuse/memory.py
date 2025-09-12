@@ -148,11 +148,11 @@ class AsyncMemory:
             include_knowledge=include_knowledge,
         )
 
-    async def add(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    async def add(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Add messages to the memory.
 
         Args:
-            messages: List of message dictionaries with role and content
+            messages: List of message dictionaries with role, content, and optional metadata
 
         Returns:
             Dict containing message IDs
@@ -162,11 +162,11 @@ class AsyncMemory:
             messages=messages,
         )
     
-    async def _granular_add(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    async def _granular_add(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Add messages to the memory in a granular way, respecting user-assistant pairing.
 
         Args:
-            messages: List of message dictionaries with role and content
+            messages: List of message dictionaries with role, content, and optional metadata
 
         Returns:
             Dict containing aggregated message IDs from all chunked additions.
@@ -185,10 +185,10 @@ class AsyncMemory:
                 all_api_call_results.append(result)
         else:
             idx = 0
-            sent_chunk_messages_history: List[List[Dict[str, str]]] = [] 
+            sent_chunk_messages_history: List[List[Dict[str, Any]]] = [] 
 
             while idx < len(messages):
-                current_chunk_candidate: List[Dict[str, str]] = []
+                current_chunk_candidate: List[Dict[str, Any]] = []
                 start_of_this_chunk_original_idx = idx 
 
                 first_message_in_chunk = messages[idx]
@@ -294,13 +294,13 @@ class AsyncMemory:
         )
 
     async def update(
-        self, message_ids: List[str], new_messages: List[Dict[str, str]]
+        self, message_ids: List[str], new_messages: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """Update messages in the memory.
 
         Args:
             message_ids: List of message IDs
-            new_messages: List of new message dictionaries
+            new_messages: List of new message dictionaries (role, content, optional metadata)
 
         Returns:
             Dict containing updated message IDs
@@ -518,11 +518,11 @@ class Memory:
             include_knowledge=include_knowledge,
         )
 
-    def add(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    def add(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Add messages to the memory.
 
         Args:
-            messages: List of message dictionaries with role and content
+            messages: List of message dictionaries with role, content, and optional metadata
 
         Returns:
             Dict containing message IDs
@@ -532,11 +532,11 @@ class Memory:
             messages=messages,
         )
     
-    def _granular_add(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    def _granular_add(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Add messages to the memory in a granular way, respecting user-assistant pairing.
 
         Args:
-            messages: List of message dictionaries with role and content
+            messages: List of message dictionaries with role, content, and optional metadata
 
         Returns:
             Dict containing aggregated message IDs from all chunked additions.
@@ -555,10 +555,10 @@ class Memory:
                 all_api_call_results.append(result)
         else:
             idx = 0
-            sent_chunk_messages_history: List[List[Dict[str, str]]] = [] 
+            sent_chunk_messages_history: List[List[Dict[str, Any]]] = [] 
 
             while idx < len(messages):
-                current_chunk_candidate: List[Dict[str, str]] = []
+                current_chunk_candidate: List[Dict[str, Any]] = []
                 start_of_this_chunk_original_idx = idx 
 
                 first_message_in_chunk = messages[idx]
@@ -664,13 +664,13 @@ class Memory:
         )
 
     def update(
-        self, message_ids: List[str], new_messages: List[Dict[str, str]]
+        self, message_ids: List[str], new_messages: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """Update messages in the memory.
 
         Args:
             message_ids: List of message IDs
-            new_messages: List of new message dictionaries
+            new_messages: List of new message dictionaries (role, content, optional metadata)
 
         Returns:
             Dict containing updated message IDs
