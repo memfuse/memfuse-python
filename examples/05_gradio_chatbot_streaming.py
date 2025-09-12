@@ -49,7 +49,7 @@ def main():
             try:
                 # Call the synchronous LLM API with streaming enabled
                 response_stream = client.chat.completions.create(
-                    model="gpt-4o-mini", # Or your preferred model
+                    model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"), # Or your preferred model
                     messages=current_messages_for_api, # Pass the combined history and current message
                     stream=True  # Enable streaming
                 )

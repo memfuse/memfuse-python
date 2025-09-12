@@ -29,7 +29,7 @@ async def main():
         )
         
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "I'm working on a project about space exploration. Can you tell me something interesting about Mars?"}],
         )
         
@@ -38,7 +38,7 @@ async def main():
         # Test follow-up to verify memory is working
         print("\n🔄 --- OpenAI Follow-up Question ---")
         followup_response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "What would be the biggest challenges for humans living on that planet?"}],
         )
         

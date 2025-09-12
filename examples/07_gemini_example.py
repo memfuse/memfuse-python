@@ -52,7 +52,7 @@ try:
     # Test follow-up to verify memory is working
     print("\n--- Gemini Follow-up Question ---")
     followup_response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash-preview-05-20",
+        model="gemini-2.5-flash-lite",
         contents="Tell me more about that planet's moons."
     )
     
@@ -88,7 +88,7 @@ async def run_async_gemini_example():
             
             try:
                 gemini_response_async = await gemini_async_client.models.generate_content_async(
-                    model="gemini-1.5-flash",
+                    model="gemini-2.5-flash-lite",
                     contents="What's an async fascinating fact about Saturn?"
                 )
                 
@@ -106,7 +106,7 @@ async def run_async_gemini_example():
                 
                 print("\n🔄 --- Async Gemini Follow-up Question ---")
                 followup_response_async = await gemini_async_client.models.generate_content_async(
-                    model="gemini-1.5-flash",
+                    model="gemini-2.5-flash-lite",
                     contents="Tell me more async about that planet's moons."
                 )
                 
