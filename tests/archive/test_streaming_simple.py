@@ -42,7 +42,7 @@ def test_streaming():
         print("-" * 30)
         
         response_stream = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=messages,
             stream=True
         )

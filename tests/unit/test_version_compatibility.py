@@ -1,6 +1,9 @@
 """Unit tests for version compatibility utilities."""
 
 import pytest
+
+# Mark all tests in this module as unit tests
+pytestmark = pytest.mark.unit
 from unittest.mock import Mock, AsyncMock, patch
 from memfuse.utils.version_compatibility import (
     parse_semantic_version,

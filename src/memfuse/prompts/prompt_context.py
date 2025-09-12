@@ -82,14 +82,9 @@ class PromptContext:
             lt_snippets_list = []
             for item in self.long_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
-                
-                prefix = f"[{mem_type}"
-                # Add role information specifically for 'message' type memories
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
+
+                prefix = f"[{mem_type}]"
                 
                 # Format the snippet including type and role (if applicable)
                 lt_snippets_list.append(f"{prefix}: {content}")
@@ -111,14 +106,9 @@ class PromptContext:
             st_snippets_list = []
             for item in self.short_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
 
-                prefix = f"[{mem_type}"
-                # Add role information specifically for 'message' type memories
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                prefix = f"[{mem_type}]"
 
                 # Format the snippet including type and role (if applicable)
                 st_snippets_list.append(f"{prefix}: {content}")
@@ -161,13 +151,9 @@ class PromptContext:
             lt_snippets_list = []
             for item in self.long_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
-                
-                prefix = f"[{mem_type}"
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
+
+                prefix = f"[{mem_type}]"
                 
                 lt_snippets_list.append(f"{prefix}: {content}")
             
@@ -186,13 +172,9 @@ class PromptContext:
             st_snippets_list = []
             for item in self.short_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
 
-                prefix = f"[{mem_type}"
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                prefix = f"[{mem_type}]"
 
                 st_snippets_list.append(f"{prefix}: {content}")
 
@@ -253,13 +235,9 @@ class PromptContext:
             lt_snippets_list = []
             for item in self.long_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
-                
-                prefix = f"[{mem_type}"
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
+
+                prefix = f"[{mem_type}]"
                 
                 lt_snippets_list.append(f"{prefix}: {content}")
 
@@ -278,13 +256,9 @@ class PromptContext:
             st_snippets_list = []
             for item in self.short_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
 
-                prefix = f"[{mem_type}"
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                prefix = f"[{mem_type}]"
 
                 st_snippets_list.append(f"{prefix}: {content}")
 

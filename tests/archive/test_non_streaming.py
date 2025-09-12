@@ -41,7 +41,7 @@ def test_non_streaming():
         print("-" * 30)
         
         response_obj = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=messages,
             stream=False  # Explicitly disable streaming
         )

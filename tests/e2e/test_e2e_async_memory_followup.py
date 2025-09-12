@@ -73,7 +73,7 @@ async def test_async_memory_followup_includes_mars_reference():
         # Act – 1️⃣ initial question
         # ---------------------------------------------------------------------
         await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "Tell me something interesting about Mars."}],
         )
 
@@ -84,7 +84,7 @@ async def test_async_memory_followup_includes_mars_reference():
         # Act – 2️⃣ follow-up question that relies on memory
         # ---------------------------------------------------------------------
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[
                 {
                     "role": "user",
@@ -194,7 +194,7 @@ async def test_async_memory_with_context_manager():
 
             # Test that memory context is preserved
             response = await client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
                 messages=[
                     {
                         "role": "user", 

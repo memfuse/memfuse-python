@@ -79,6 +79,7 @@ class AsyncMemory:
         store_type: Optional[str] = None,
         include_messages: bool = True,
         include_knowledge: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Query the memory for relevant information.
 
@@ -90,9 +91,10 @@ class AsyncMemory:
                         If None or not provided, all results will have scope=null.
             agent_id: Optional agent ID to filter results
             top_k: Number of results to return
-            store_type: Type of store to query
-            include_messages: Whether to include messages in the query
-            include_knowledge: Whether to include knowledge in the query
+            store_type: Deprecated; ignored by server
+            include_messages: Deprecated; ignored by server
+            include_knowledge: Deprecated; ignored by server
+            metadata: Optional metadata to provide additional query context (e.g., {"task": "...", "mode": "..."})
 
         Returns:
             Dict containing query results
@@ -107,6 +109,7 @@ class AsyncMemory:
             store_type=store_type,
             include_messages=include_messages,
             include_knowledge=include_knowledge,
+            metadata=metadata,
         )
 
         # Return the full response for backward compatibility
@@ -450,6 +453,7 @@ class Memory:
         store_type: Optional[str] = None,
         include_messages: bool = True,
         include_knowledge: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Query the memory for relevant information.
 
@@ -461,9 +465,10 @@ class Memory:
                         If None or not provided, all results will have scope=null.
             agent_id: Optional agent ID to filter results
             top_k: Number of results to return
-            store_type: Type of store to query
-            include_messages: Whether to include messages in the query
-            include_knowledge: Whether to include knowledge in the query
+            store_type: Deprecated; ignored by server
+            include_messages: Deprecated; ignored by server
+            include_knowledge: Deprecated; ignored by server
+            metadata: Optional metadata to provide additional query context (e.g., {"task": "...", "mode": "..."})
 
         Returns:
             Dict containing query results
@@ -477,6 +482,7 @@ class Memory:
             store_type=store_type,
             include_messages=include_messages,
             include_knowledge=include_knowledge,
+            metadata=metadata,
         )
 
     def query_session(
