@@ -6,6 +6,7 @@ used specifically for the LME dataset to assess whether the correct answer-conta
 messages from haystack sessions are retrieved by the MemFuse RAG system.
 """
 import pytest
+pytestmark = pytest.mark.benchmarks
 import logging
 from benchmarks.utils import extract_answer_containing_messages, calculate_retrieval_metrics
 

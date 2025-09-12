@@ -36,6 +36,9 @@ class TestVersionParsing:
         assert parse_semantic_version("0.3.0.post16.dev0+899f75a") == (0, 3, 0)
         assert parse_semantic_version("1.0.0.dev123") == (1, 0, 0)
         assert parse_semantic_version("2.1.0.post1") == (2, 1, 0)
+        # Release candidates and multi-digit patch versions
+        assert parse_semantic_version("0.3.23") == (0, 3, 23)
+        assert parse_semantic_version("0.3.23rc1") == (0, 3, 23)
         
         # Complex versions that should extract base version
         assert parse_semantic_version("1.2.3.4") == (1, 2, 3)  # Treats .4 as suffix

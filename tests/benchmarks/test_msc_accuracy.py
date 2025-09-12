@@ -14,6 +14,7 @@ import asyncio
 import warnings
 
 import pytest
+pytestmark = pytest.mark.benchmarks
 from dotenv import load_dotenv
 
 # Add project paths for imports
