@@ -24,9 +24,10 @@ def parse_semantic_version(version_string: str) -> Optional[Tuple[int, int, int]
     # Remove 'v' prefix if present
     version_string = version_string.lstrip('v')
     
-    # Match semantic version pattern with more flexible post-release/dev/local identifiers
-    # This handles: 1.2.3, 1.2.3-alpha, 1.2.3+build.1, 1.2.3.post16.dev0+hash, etc.
-    pattern = r'^(\d+)\.(\d+)\.(\d+)(?:[-+.].*)?$'
+    # Match the first three numeric components and ignore any trailing identifiers
+    # Handles: 1.2.3, 1.2.3-alpha, 1.2.3+build.1, 1.2.3.post16.dev0+hash, 1.2.3rc1, etc.
+    # Examples like "0.3.23" and "0.3.23rc1" both parse as (0, 3, 23).
+    pattern = r'^(\d+)\.(\d+)\.(\d+)'
     match = re.match(pattern, version_string)
     
     if not match:

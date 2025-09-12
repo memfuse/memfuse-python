@@ -8,9 +8,9 @@ class PromptContext:
     """
     def __init__(
         self,
-        query_messages: List[Dict[str, str]],
-        retrieved_memories: List[Dict[str, str]] = None,
-        retrieved_chat_history: List[Dict[str, str]] = None,
+        query_messages: List[Dict[str, Any]],
+        retrieved_memories: List[Dict[str, Any]] = None,
+        retrieved_chat_history: List[Dict[str, Any]] = None,
         max_chat_history: int = 10,
     ):
         self.query_messages = query_messages
@@ -19,7 +19,7 @@ class PromptContext:
         self.max_chat_history = max_chat_history
 
     @property
-    def system_instruction(self) -> Dict[str, str]:
+    def system_instruction(self) -> Dict[str, Any]:
         # Check if the first message in query_messages is a system message
         if self.query_messages and self.query_messages[0].get("role") == "system":
             return self.query_messages[0]
@@ -32,7 +32,7 @@ class PromptContext:
         return self.system_instruction.get("content", "You are a helpful assistant.")
     
     @property
-    def user_query(self) -> List[Dict[str, str]]:
+    def user_query(self) -> List[Dict[str, Any]]:
         """
         Returns a list of OpenAI message dictionaries representing the user query.
         If the first message is a system message, it is excluded; otherwise, returns all messages as is.
@@ -42,7 +42,7 @@ class PromptContext:
         return self.query_messages
 
     @property
-    def long_term_memory(self) -> List[Dict[str, str]]:
+    def long_term_memory(self) -> List[Dict[str, Any]]:
         """
         Returns a list of long-term memory items.
         Includes memories with cross_session scope OR memories with no scope (None/missing).
@@ -54,7 +54,7 @@ class PromptContext:
         ]
 
     @property
-    def short_term_memory(self) -> List[Dict[str, str]]:
+    def short_term_memory(self) -> List[Dict[str, Any]]:
         """
         Returns a list of short-term memory items.
         Only includes memories specifically marked as in_session scope.
@@ -65,12 +65,12 @@ class PromptContext:
         ]
 
     @property
-    def chat_history(self) -> List[Dict[str, str]]:
+    def chat_history(self) -> List[Dict[str, Any]]:
         if not self.retrieved_chat_history:
             return []
         return self.retrieved_chat_history[-self.max_chat_history:]
 
-    def compose_for_openai(self) -> List[Dict[str, str]]:
+    def compose_for_openai(self) -> List[Dict[str, Any]]:
         """Compose the final message list for OpenAI API."""
         messages: List[Dict[str, str]] = []
 
@@ -82,14 +82,9 @@ class PromptContext:
             lt_snippets_list = []
             for item in self.long_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
-                
-                prefix = f"[{mem_type}"
-                # Add role information specifically for 'message' type memories
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
+
+                prefix = f"[{mem_type}]"
                 
                 # Format the snippet including type and role (if applicable)
                 lt_snippets_list.append(f"{prefix}: {content}")
@@ -111,14 +106,9 @@ class PromptContext:
             st_snippets_list = []
             for item in self.short_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
 
-                prefix = f"[{mem_type}"
-                # Add role information specifically for 'message' type memories
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                prefix = f"[{mem_type}]"
 
                 # Format the snippet including type and role (if applicable)
                 st_snippets_list.append(f"{prefix}: {content}")
@@ -161,13 +151,9 @@ class PromptContext:
             lt_snippets_list = []
             for item in self.long_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
-                
-                prefix = f"[{mem_type}"
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
+
+                prefix = f"[{mem_type}]"
                 
                 lt_snippets_list.append(f"{prefix}: {content}")
             
@@ -186,13 +172,9 @@ class PromptContext:
             st_snippets_list = []
             for item in self.short_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
 
-                prefix = f"[{mem_type}"
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                prefix = f"[{mem_type}]"
 
                 st_snippets_list.append(f"{prefix}: {content}")
 
@@ -236,7 +218,7 @@ class PromptContext:
         
         return system_prompt, anthropic_messages
 
-    def compose_for_gemini(self) -> List[Dict[str, str]]:
+    def compose_for_gemini(self) -> List[Dict[str, Any]]:
         """
         Compose the final message list for Gemini API.
         Gemini only accepts 'user' and 'model' roles, so system content needs to be
@@ -253,13 +235,9 @@ class PromptContext:
             lt_snippets_list = []
             for item in self.long_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
-                
-                prefix = f"[{mem_type}"
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
+
+                prefix = f"[{mem_type}]"
                 
                 lt_snippets_list.append(f"{prefix}: {content}")
 
@@ -278,13 +256,9 @@ class PromptContext:
             st_snippets_list = []
             for item in self.short_term_memory:
                 content = item.get("content", "N/A")
-                mem_type = item.get("type", "unknown").upper()
-                role = item.get("role")
+                mem_type = (item.get("memory_type") or item.get("type") or "unknown").upper()
 
-                prefix = f"[{mem_type}"
-                if role and mem_type == "MESSAGE":
-                    prefix += f" from {role.upper()}"
-                prefix += "]"
+                prefix = f"[{mem_type}]"
 
                 st_snippets_list.append(f"{prefix}: {content}")
 

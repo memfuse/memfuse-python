@@ -91,7 +91,7 @@ def main():
                 # Call the synchronous LLM API WITHOUT streaming (traditional response)
                 print("DEBUG: About to call client.chat.completions.create")
                 response_obj = client.chat.completions.create(
-                    model="gpt-4o-mini", # Or your preferred model
+                    model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"), # Or your preferred model
                     messages=current_messages_for_api, # Pass only system message and current user message
                     stream=False  # Disable streaming for traditional response
                 )

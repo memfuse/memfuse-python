@@ -1,6 +1,9 @@
 """Unit tests for version compatibility utilities."""
 
 import pytest
+
+# Mark all tests in this module as unit tests
+pytestmark = pytest.mark.unit
 from unittest.mock import Mock, AsyncMock, patch
 from memfuse.utils.version_compatibility import (
     parse_semantic_version,
@@ -33,6 +36,9 @@ class TestVersionParsing:
         assert parse_semantic_version("0.3.0.post16.dev0+899f75a") == (0, 3, 0)
         assert parse_semantic_version("1.0.0.dev123") == (1, 0, 0)
         assert parse_semantic_version("2.1.0.post1") == (2, 1, 0)
+        # Release candidates and multi-digit patch versions
+        assert parse_semantic_version("0.3.23") == (0, 3, 23)
+        assert parse_semantic_version("0.3.23rc1") == (0, 3, 23)
         
         # Complex versions that should extract base version
         assert parse_semantic_version("1.2.3.4") == (1, 2, 3)  # Treats .4 as suffix

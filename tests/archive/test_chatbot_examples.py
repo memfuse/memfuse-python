@@ -40,7 +40,7 @@ def test_chatbot_function():
             
             try:
                 response_stream = client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
                     messages=current_messages_for_api,
                     stream=True  # Enable streaming
                 )
