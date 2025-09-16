@@ -4,6 +4,7 @@ import os
 import asyncio
 import threading
 import aiohttp
+import json
 from typing import Dict, Optional, Any
 import uuid
 import time
@@ -111,6 +112,15 @@ class AsyncMemFuse:
             ConnectionError: If the server is not running, with a helpful error message
         """
         await self._ensure_session()
+
+        # Debug logging
+        if os.getenv("MEMFUSE_DEBUG") == "1":
+            url = f"{self.base_url}{endpoint}"
+            logger.debug(f"[MEMFUSE API] {method} {url}")
+            if data:
+                logger.debug(f"[MEMFUSE API] Request body: {json.dumps(data, indent=2)}")
+            if extra_headers:
+                logger.debug(f"[MEMFUSE API] Extra headers: {extra_headers}")
 
         # Check if the server is running
         try:
@@ -514,6 +524,15 @@ class MemFuse:
         """
         import requests
         self._ensure_sync_session()
+
+        # Debug logging
+        if os.getenv("MEMFUSE_DEBUG") == "1":
+            url = f"{self.base_url}{endpoint}"
+            logger.debug(f"[MEMFUSE API] {method} {url}")
+            if data:
+                logger.debug(f"[MEMFUSE API] Request body: {json.dumps(data, indent=2)}")
+            if extra_headers:
+                logger.debug(f"[MEMFUSE API] Extra headers: {extra_headers}")
 
         # Check if the server is running
         try:
