@@ -50,6 +50,9 @@ A **web-based chatbot interface** with **real-time streaming responses**, includ
 - Enhanced user experience with immediate feedback
 - Gradio ChatInterface optimized for streaming
 
+> Note: The Gradio-based examples require the optional UI dependencies. Install with:
+> `pip install "memfuse[ui]"`. If not installed, the scripts raise a clear error: `Install memfuse[ui] to use the demo UI.`
+
 ### 06_anthropic_example.py
 
 An example demonstrating **synchronous Anthropic integration**, including:

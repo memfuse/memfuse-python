@@ -1,4 +1,7 @@
-import gradio as gr
+try:
+    import gradio as gr
+except ImportError:
+    raise RuntimeError('Install memfuse[ui] to use the demo UI.')
 from memfuse.llm import OpenAI  # Use synchronous OpenAI
 from memfuse import MemFuse  # Use synchronous MemFuse
 import os
