@@ -97,14 +97,28 @@ def _wrap_create(
                 if isinstance(query_response["data"], dict):
                     logger.info(f"query_response['data'] keys: {list(query_response['data'].keys())}")
 
-        try:
-            retrieved_memories = query_response["data"]["results"]
-            logger.info(f"Successfully retrieved memories: {retrieved_memories}")
-        except Exception as e:
-            logger.error(f"Error accessing query_response['data']['results']: {e}")
-            logger.error(f"Exception type: {type(e)}")
-            # Re-raise the exception to see the full traceback
-            raise
+        # Compact diagnostics for the new envelope
+        if isinstance(query_response, dict):
+            status = query_response.get("status")
+            code = query_response.get("code")
+            message = query_response.get("message")
+            errors = query_response.get("errors")
+            total = (
+                query_response.get("data", {}).get("total")
+                if isinstance(query_response.get("data"), dict)
+                else None
+            )
+            logger.info(f"Query status={status} code={code} total={total} message={message}")
+            if errors:
+                logger.warning(f"Query errors: {errors}")
+
+        # Safely extract results with fallback
+        retrieved_memories = (
+            query_response.get("data", {}).get("results", [])
+            if isinstance(query_response, dict)
+            else []
+        )
+        logger.info(f"Successfully retrieved {len(retrieved_memories)} memories")
 
         # ------- 4. Compose the prompt --------------------------
         prompt_context = PromptContext(
@@ -297,14 +311,28 @@ def _async_wrap_create(
                 if isinstance(query_response["data"], dict):
                     logger.info(f"query_response['data'] keys: {list(query_response['data'].keys())}")
 
-        try:
-            retrieved_memories = query_response["data"]["results"]
-            logger.info(f"Successfully retrieved memories: {retrieved_memories}")
-        except Exception as e:
-            logger.error(f"Error accessing query_response['data']['results']: {e}")
-            logger.error(f"Exception type: {type(e)}")
-            # Re-raise the exception to see the full traceback
-            raise
+        # Compact diagnostics for the new envelope
+        if isinstance(query_response, dict):
+            status = query_response.get("status")
+            code = query_response.get("code")
+            message = query_response.get("message")
+            errors = query_response.get("errors")
+            total = (
+                query_response.get("data", {}).get("total")
+                if isinstance(query_response.get("data"), dict)
+                else None
+            )
+            logger.info(f"Query status={status} code={code} total={total} message={message}")
+            if errors:
+                logger.warning(f"Query errors: {errors}")
+
+        # Safely extract results with fallback
+        retrieved_memories = (
+            query_response.get("data", {}).get("results", [])
+            if isinstance(query_response, dict)
+            else []
+        )
+        logger.info(f"Successfully retrieved {len(retrieved_memories)} memories")
 
         # ------- 4. Compose the prompt --------------------------
         prompt_context = PromptContext(
