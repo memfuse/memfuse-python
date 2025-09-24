@@ -54,7 +54,7 @@ def test_multi_turn_conversation_memory():
         pytest.skip("OPENAI_API_KEY not set – skipping E2E memory test")
     
     # Setup
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
     openai_api_key = os.getenv("OPENAI_API_KEY")
     
     try:

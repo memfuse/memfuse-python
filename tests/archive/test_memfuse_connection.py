@@ -10,7 +10,7 @@ load_dotenv(override=True)
 
 def test_memfuse_connection():
     """Test if MemFuse server is running and accessible"""
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
     
     print(f"Testing MemFuse connection to: {memfuse_base_url}")
     

@@ -18,7 +18,7 @@ def test_non_streaming():
     """Test non-streaming functionality directly"""
     
     # Initialize MemFuse and OpenAI client
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
     
     try:
         memfuse = MemFuse(base_url=memfuse_base_url)

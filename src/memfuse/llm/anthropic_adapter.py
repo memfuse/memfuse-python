@@ -100,9 +100,29 @@ def _wrap_create(
             # Store query response and timing for debugging access (invisible to normal users)
             _debug_query_response.set(query_response)
             _debug_query_time.set(query_duration)
-            
-            retrieved_memories = query_response["data"]["results"]
-            logger.info(f"Query took {query_duration * 1000:.2f} ms")
+
+            # Compact diagnostics for the new envelope
+            if isinstance(query_response, dict):
+                status = query_response.get("status")
+                code = query_response.get("code")
+                message = query_response.get("message")
+                errors = query_response.get("errors")
+                total = (
+                    query_response.get("data", {}).get("total")
+                    if isinstance(query_response.get("data"), dict)
+                    else None
+                )
+                logger.info(f"Query status={status} code={code} total={total} message={message}")
+                if errors:
+                    logger.warning(f"Query errors: {errors}")
+
+            # Safely extract results with fallback
+            retrieved_memories = (
+                query_response.get("data", {}).get("results", [])
+                if isinstance(query_response, dict)
+                else []
+            )
+            logger.info(f"Query took {query_duration * 1000:.2f} ms; {len(retrieved_memories)} memories")
         
         # ------- 4. Compose the prompt for Anthropic API format --------------------------
         prompt_context = PromptContext(
@@ -233,9 +253,29 @@ def _wrap_create_async(
             # Store query response and timing for debugging access (invisible to normal users)
             _debug_query_response.set(query_response)
             _debug_query_time.set(query_duration)
-            
-            retrieved_memories = query_response["data"]["results"]
-            logger.info(f"Query took {query_duration * 1000:.2f} ms")
+
+            # Compact diagnostics for the new envelope
+            if isinstance(query_response, dict):
+                status = query_response.get("status")
+                code = query_response.get("code")
+                message = query_response.get("message")
+                errors = query_response.get("errors")
+                total = (
+                    query_response.get("data", {}).get("total")
+                    if isinstance(query_response.get("data"), dict)
+                    else None
+                )
+                logger.info(f"Query status={status} code={code} total={total} message={message}")
+                if errors:
+                    logger.warning(f"Query errors: {errors}")
+
+            # Safely extract results with fallback
+            retrieved_memories = (
+                query_response.get("data", {}).get("results", [])
+                if isinstance(query_response, dict)
+                else []
+            )
+            logger.info(f"Query took {query_duration * 1000:.2f} ms; {len(retrieved_memories)} memories")
         
         # ------- 4. Compose the prompt for Anthropic API format --------------------------
         prompt_context = PromptContext(

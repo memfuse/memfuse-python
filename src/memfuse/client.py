@@ -33,7 +33,7 @@ class AsyncMemFuse:
     _agent_creation_futures: Optional[Dict[str, asyncio.Task]] = None
     _agent_creation_lock: Optional[asyncio.Lock] = None
 
-    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None, timeout: int = 10):
+    def __init__(self, base_url: str = "http://localhost:8765", api_key: Optional[str] = None, timeout: int = 10):
         """Initialize the MemFuse client.
 
         Args:
@@ -452,7 +452,7 @@ class MemFuse:
     _agent_creation_locks = {}
     _agent_creation_lock = threading.Lock()
 
-    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None, timeout: int = 10):
+    def __init__(self, base_url: str = "http://localhost:8765", api_key: Optional[str] = None, timeout: int = 10):
         """Initialize the synchronous MemFuse client.
 
         Args:

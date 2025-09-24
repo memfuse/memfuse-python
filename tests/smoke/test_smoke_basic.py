@@ -201,15 +201,15 @@ def test_url_construction():
     
     # Test with default base URL
     client1 = AsyncMemFuse()
-    assert client1.base_url == "http://localhost:8000"
+    assert client1.base_url == "http://localhost:8765"
     
     # Test with custom base URL
     client2 = AsyncMemFuse(base_url="https://api.example.com")
     assert client2.base_url == "https://api.example.com"
     
     # Test with trailing slash removal
-    client3 = AsyncMemFuse(base_url="http://localhost:8000/")
-    assert client3.base_url == "http://localhost:8000"
+    client3 = AsyncMemFuse(base_url="http://localhost:8765/")
+    assert client3.base_url == "http://localhost:8765"
     
     # Test sync client
     sync_client = MemFuse(base_url="https://api.example.com/")

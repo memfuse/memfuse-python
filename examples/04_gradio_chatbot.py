@@ -18,7 +18,7 @@ SYSTEM_MESSAGE = (
 
 def main():
     # Make MemFuse base URL configurable via environment variable
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
     
     # Configure logging to see debug information from memfuse
     import logging
