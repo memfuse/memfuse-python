@@ -82,6 +82,20 @@ cd memfuse-python
 pip install -e .
 ```
 
+### Optional extras
+
+Some features are optional and shipped as extras:
+
+- UI (Gradio demo UIs)
+  - pip: `pip install "memfuse[ui]"`
+  - poetry: add the `ui` extra
+
+- Full (includes UI)
+  - pip: `pip install "memfuse[full]"`
+  - poetry: add the `full` extra
+
+The Gradio-based examples in `examples/` require the `ui` extra. If you run those scripts without the extra installed, they will raise: `RuntimeError('Install memfuse[ui] to use the demo UI.')`.
+
 ## Quick Start
 
 Here's a comprehensive example demonstrating how to use the MemFuse Python SDK with OpenAI:

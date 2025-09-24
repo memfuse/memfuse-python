@@ -32,10 +32,13 @@ requests = "^2.32.3"
 anthropic = "^0.51.0"
 google-genai = "^1.16.1"
 ollama = "^0.4.8"
-gradio = "^5.30.0"
+gradio = { version = "^5.30.0", optional = true }
 python-dotenv = "^1.1.0"
 loguru = "^0.7.3"
 
+[tool.poetry.extras]
+ui = ["gradio"]
+full = ["gradio"] # alias if you prefer memfuse[full]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.5"
