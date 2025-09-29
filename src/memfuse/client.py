@@ -122,18 +122,8 @@ class AsyncMemFuse:
             if extra_headers:
                 logger.debug(f"[MEMFUSE API] Extra headers: {extra_headers}")
 
-        # Check if the server is running
+        # Perform the request (health check is handled during init)
         try:
-            if not await self._check_server_health():
-                # Instead of raising a plain ConnectionError, we raise a custom exception
-                # with a helpful error message that includes instructions on how to start the server
-                raise ConnectionError(
-                    f"Cannot connect to MemFuse server at {self.base_url}. "
-                    "Please make sure the server is running.\n\n"
-                    "You can start the server with:\n"
-                    "  poetry run memfuse-core"
-                )
-
             url = f"{self.base_url}{endpoint}"
 
             async with getattr(self.session, method.lower())(
@@ -218,6 +208,16 @@ class AsyncMemFuse:
         Returns:
             ClientMemory: A client memory instance for the specified user, agent, and session
         """
+        # Ensure session and validate server health once up front
+        await self._ensure_session()
+        if not await self._check_server_health():
+            raise ConnectionError(
+                f"Cannot connect to MemFuse server at {self.base_url}. "
+                "Please make sure the server is running.\n\n"
+                "You can start the server with:\n"
+                "  poetry run memfuse-core"
+            )
+
         # Check version compatibility
         await self._check_version_compatibility()
         
@@ -534,16 +534,8 @@ class MemFuse:
             if extra_headers:
                 logger.debug(f"[MEMFUSE API] Extra headers: {extra_headers}")
 
-        # Check if the server is running
+        # Perform the request (health check is handled during init)
         try:
-            if not self._check_server_health_sync():
-                raise ConnectionError(
-                    f"Cannot connect to MemFuse server at {self.base_url}. "
-                    "Please make sure the server is running.\n\n"
-                    "You can start the server with:\n"
-                    "  poetry run memfuse-core"
-                )
-
             url = f"{self.base_url}{endpoint}"
 
             response = getattr(self.sync_session, method.lower())(
@@ -626,6 +618,16 @@ class MemFuse:
         Returns:
             Memory: A synchronous memory instance.
         """
+        # Ensure session and validate server health once up front
+        self._ensure_sync_session()
+        if not self._check_server_health_sync():
+            raise ConnectionError(
+                f"Cannot connect to MemFuse server at {self.base_url}. "
+                "Please make sure the server is running.\n\n"
+                "You can start the server with:\n"
+                "  poetry run memfuse-core"
+            )
+
         # Check version compatibility
         self._check_version_compatibility_sync()
         
