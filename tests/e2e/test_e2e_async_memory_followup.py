@@ -50,7 +50,7 @@ async def test_async_memory_followup_includes_mars_reference():
     if not openai_key:
         pytest.skip("OPENAI_API_KEY not set – skipping async E2E memory test")
 
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
 
     # ---------------------------------------------------------------------
     # Arrange – create AsyncMemFuse session & AsyncOpenAI client with memory
@@ -73,7 +73,7 @@ async def test_async_memory_followup_includes_mars_reference():
         # Act – 1️⃣ initial question
         # ---------------------------------------------------------------------
         await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "Tell me something interesting about Mars."}],
         )
 
@@ -84,7 +84,7 @@ async def test_async_memory_followup_includes_mars_reference():
         # Act – 2️⃣ follow-up question that relies on memory
         # ---------------------------------------------------------------------
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[
                 {
                     "role": "user",
@@ -168,7 +168,7 @@ async def test_async_memory_with_context_manager():
     if not openai_key:
         pytest.skip("OPENAI_API_KEY not set – skipping async context manager test")
 
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
 
     # ---------------------------------------------------------------------
     # Test using async context manager (recommended approach)
@@ -194,7 +194,7 @@ async def test_async_memory_with_context_manager():
 
             # Test that memory context is preserved
             response = await client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
                 messages=[
                     {
                         "role": "user", 

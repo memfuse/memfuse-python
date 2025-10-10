@@ -48,7 +48,7 @@ def test_memory_followup_includes_mars_reference():
     if not openai_key:
         pytest.skip("OPENAI_API_KEY not set – skipping E2E memory test")
 
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
 
     # ---------------------------------------------------------------------
     # Arrange – create MemFuse session & OpenAI client with memory attached
@@ -71,7 +71,7 @@ def test_memory_followup_includes_mars_reference():
     # Act – 1️⃣ initial question
     # ---------------------------------------------------------------------
     client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
         messages=[{"role": "user", "content": "Tell me something interesting about Mars."}],
     )
 
@@ -82,7 +82,7 @@ def test_memory_followup_includes_mars_reference():
     # Act – 2️⃣ follow-up question that relies on memory
     # ---------------------------------------------------------------------
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
         messages=[
             {
                 "role": "user",

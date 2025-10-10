@@ -18,7 +18,7 @@ def test_chatbot_function():
     """Test the chatbot function directly with example inputs"""
     
     # Initialize MemFuse and OpenAI client
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
     
     try:
         memfuse = MemFuse(base_url=memfuse_base_url)
@@ -40,7 +40,7 @@ def test_chatbot_function():
             
             try:
                 response_stream = client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
                     messages=current_messages_for_api,
                     stream=True  # Enable streaming
                 )

@@ -9,6 +9,7 @@ class Message(BaseModel):
     
     role: str
     content: str
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class InitRequest(BaseModel):
@@ -24,9 +25,9 @@ class QueryRequest(BaseModel):
 
     query: str
     top_k: int = 5
-    store_type: Optional[str] = None
-    include_messages: bool = True
-    include_knowledge: bool = True
+    agent_id: Optional[str] = None
+    session_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class AddRequest(BaseModel):

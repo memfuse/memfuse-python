@@ -7,7 +7,7 @@ load_dotenv()
 
 # Read API key and base URL from environment variables
 MEMFUSE_API_KEY = os.getenv("MEMFUSE_API_KEY")
-MEMFUSE_BASE_URL = os.getenv("MEMFUSE_BASE_URL", "http://localhost:8000")
+MEMFUSE_BASE_URL = os.getenv("MEMFUSE_BASE_URL", "http://localhost:8765")
 
 # Mark all tests in this file as integration
 pytestmark = pytest.mark.integration

@@ -1,4 +1,7 @@
-import gradio as gr
+try:
+    import gradio as gr
+except ImportError:
+    raise RuntimeError('Install memfuse[ui] to use the demo UI.')
 from memfuse.llm import OpenAI  # Use synchronous OpenAI
 from memfuse import MemFuse  # Use synchronous MemFuse
 import os
@@ -18,7 +21,7 @@ SYSTEM_MESSAGE = (
 
 def main():
     # Make MemFuse base URL configurable via environment variable
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
     
     # Configure logging to see debug information from memfuse
     import logging
@@ -91,7 +94,7 @@ def main():
                 # Call the synchronous LLM API WITHOUT streaming (traditional response)
                 print("DEBUG: About to call client.chat.completions.create")
                 response_obj = client.chat.completions.create(
-                    model="gpt-4o-mini", # Or your preferred model
+                    model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"), # Or your preferred model
                     messages=current_messages_for_api, # Pass only system message and current user message
                     stream=False  # Disable streaming for traditional response
                 )

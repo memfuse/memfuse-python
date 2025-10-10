@@ -1,6 +1,7 @@
 """Users API client for MemFuse."""
 
 from typing import Dict, List, Optional, Any
+import warnings
 
 
 class UsersApi:
@@ -136,6 +137,8 @@ class UsersApi:
         session_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         top_k: int = 5,
+        metadata: Optional[Dict[str, Any]] = None,
+        # Deprecated: kept for backwards compatibility; ignored in request payload
         store_type: Optional[str] = None,
         include_messages: bool = True,
         include_knowledge: bool = True,
@@ -148,25 +151,35 @@ class UsersApi:
             session_id: Session ID (optional)
             agent_id: Agent ID (optional)
             top_k: Number of results to return
-            store_type: Type of store to query
-            include_messages: Whether to include messages in the query
-            include_knowledge: Whether to include knowledge in the query
+            metadata: Optional metadata to provide additional query context (e.g., {"task": "...", "mode": "..."})
+            store_type: Deprecated; ignored
+            include_messages: Deprecated; ignored
+            include_knowledge: Deprecated; ignored
 
         Returns:
             Response data
         """
+        # Emit deprecation warnings if legacy args are passed explicitly
+        if store_type is not None or not include_messages or not include_knowledge:
+            warnings.warn(
+                "users.query: 'store_type', 'include_messages', and 'include_knowledge' are deprecated and ignored in request payload.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        payload: Dict[str, Any] = {
+            "query": query,
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "top_k": top_k,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+
         return await self.client._request(
             self._get_method('query'),
             self._build_url('query', user_id=user_id),
-            {
-                "query": query,
-                "session_id": session_id,
-                "agent_id": agent_id,
-                "top_k": top_k,
-                "store_type": store_type,
-                "include_messages": include_messages,
-                "include_knowledge": include_knowledge,
-            },
+            payload,
         )
 
     # Sync methods
@@ -271,6 +284,8 @@ class UsersApi:
         session_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         top_k: int = 5,
+        metadata: Optional[Dict[str, Any]] = None,
+        # Deprecated: kept for backwards compatibility; ignored in request payload
         store_type: Optional[str] = None,
         include_messages: bool = True,
         include_knowledge: bool = True,
@@ -283,23 +298,33 @@ class UsersApi:
             session_id: Session ID (optional)
             agent_id: Agent ID (optional)
             top_k: Number of results to return
-            store_type: Type of store to query
-            include_messages: Whether to include messages in the query
-            include_knowledge: Whether to include knowledge in the query
+            metadata: Optional metadata to provide additional query context (e.g., {"task": "...", "mode": "..."})
+            store_type: Deprecated; ignored
+            include_messages: Deprecated; ignored
+            include_knowledge: Deprecated; ignored
 
         Returns:
             Response data
         """
+        # Emit deprecation warnings if legacy args are passed explicitly
+        if store_type is not None or not include_messages or not include_knowledge:
+            warnings.warn(
+                "users.query_sync: 'store_type', 'include_messages', and 'include_knowledge' are deprecated and ignored in request payload.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        payload: Dict[str, Any] = {
+            "query": query,
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "top_k": top_k,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+
         return self.client._request_sync(
             self._get_method('query'),
             self._build_url('query', user_id=user_id),
-            {
-                "query": query,
-                "session_id": session_id,
-                "agent_id": agent_id,
-                "top_k": top_k,
-                "store_type": store_type,
-                "include_messages": include_messages,
-                "include_knowledge": include_knowledge,
-            },
+            payload,
         )

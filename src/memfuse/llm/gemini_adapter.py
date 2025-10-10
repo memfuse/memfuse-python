@@ -186,12 +186,30 @@ def _instrument_generate_content_sync(
         # Store query response and timing for debugging access (invisible to normal users)
         _debug_query_response.set(query_response)
         _debug_query_time.set(query_duration)
-        
-        retrieved_memories = query_response["data"]["results"] if query_response else None
-        
-        logger.info(f"Query took {query_duration * 1000:.2f} ms")
 
-        logger.info(f"Retrieved memories: {retrieved_memories}")
+        # Compact diagnostics for the new envelope
+        if isinstance(query_response, dict):
+            status = query_response.get("status")
+            code = query_response.get("code")
+            message = query_response.get("message")
+            errors = query_response.get("errors")
+            total = (
+                query_response.get("data", {}).get("total")
+                if isinstance(query_response.get("data"), dict)
+                else None
+            )
+            logger.info(f"Query status={status} code={code} total={total} message={message}")
+            if errors:
+                logger.warning(f"Query errors: {errors}")
+
+        # Safely extract results with fallback
+        retrieved_memories = (
+            query_response.get("data", {}).get("results", [])
+            if isinstance(query_response, dict)
+            else []
+        )
+        
+        logger.info(f"Query took {query_duration * 1000:.2f} ms; {len(retrieved_memories)} memories")
 
     # 3. Compose the prompt context for PromptFormatter
     prompt_context = PromptContext(
@@ -289,12 +307,30 @@ async def _instrument_generate_content_async(
         # Store query response and timing for debugging access (invisible to normal users)
         _debug_query_response.set(query_response)
         _debug_query_time.set(query_duration)
-        
-        retrieved_memories = query_response["data"]["results"] if query_response else None
-        
-        logger.info(f"Query took {query_duration * 1000:.2f} ms")
 
-        logger.info(f"Retrieved memories: {retrieved_memories}")
+        # Compact diagnostics for the new envelope
+        if isinstance(query_response, dict):
+            status = query_response.get("status")
+            code = query_response.get("code")
+            message = query_response.get("message")
+            errors = query_response.get("errors")
+            total = (
+                query_response.get("data", {}).get("total")
+                if isinstance(query_response.get("data"), dict)
+                else None
+            )
+            logger.info(f"Query status={status} code={code} total={total} message={message}")
+            if errors:
+                logger.warning(f"Query errors: {errors}")
+
+        # Safely extract results with fallback
+        retrieved_memories = (
+            query_response.get("data", {}).get("results", [])
+            if isinstance(query_response, dict)
+            else []
+        )
+        
+        logger.info(f"Query took {query_duration * 1000:.2f} ms; {len(retrieved_memories)} memories")
 
     # 3. Compose the prompt context for PromptFormatter
     prompt_context = PromptContext(

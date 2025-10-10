@@ -1,11 +1,17 @@
 """MemFuse client implementation."""
 
 import os
+import asyncio
+import threading
 import aiohttp
-from typing import Dict, Optional, Any, List
+import json
+from typing import Dict, Optional, Any
+import uuid
+import time
+from loguru import logger
 
 from .memory import AsyncMemory
-from .utils import MemFuseHTTPError
+from .utils import MemFuseHTTPError, check_version_compatibility
 from .api import (
     HealthApi,
     UsersApi,
@@ -23,7 +29,11 @@ class AsyncMemFuse:
     # Class variable to track all instances
     _instances = set()
 
-    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None, timeout: int = 10):
+    # Instance-scoped singleflight state (initialized lazily per event loop)
+    _agent_creation_futures: Optional[Dict[str, asyncio.Task]] = None
+    _agent_creation_lock: Optional[asyncio.Lock] = None
+
+    def __init__(self, base_url: str = "http://localhost:8765", api_key: Optional[str] = None, timeout: int = 10):
         """Initialize the MemFuse client.
 
         Args:
@@ -47,6 +57,9 @@ class AsyncMemFuse:
 
         # Add self to instances
         AsyncMemFuse._instances.add(self)
+        # Defer singleflight structures to runtime to ensure loop affinity
+        self._agent_creation_futures = None
+        self._agent_creation_lock = None
 
     async def _ensure_session(self):
         """Ensure that an HTTP session exists."""
@@ -79,7 +92,11 @@ class AsyncMemFuse:
             return False
 
     async def _request(
-        self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None
+        self,
+        method: str,
+        endpoint: str,
+        data: Optional[Dict[str, Any]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Make a request to the MemFuse server.
 
@@ -96,21 +113,25 @@ class AsyncMemFuse:
         """
         await self._ensure_session()
 
-        # Check if the server is running
-        try:
-            if not await self._check_server_health():
-                # Instead of raising a plain ConnectionError, we raise a custom exception
-                # with a helpful error message that includes instructions on how to start the server
-                raise ConnectionError(
-                    f"Cannot connect to MemFuse server at {self.base_url}. "
-                    "Please make sure the server is running.\n\n"
-                    "You can start the server with:\n"
-                    "  poetry run memfuse-core"
-                )
+        # Debug logging
+        if os.getenv("MEMFUSE_DEBUG") == "1":
+            url = f"{self.base_url}{endpoint}"
+            logger.debug(f"[MEMFUSE API] {method} {url}")
+            if data:
+                logger.debug(f"[MEMFUSE API] Request body: {json.dumps(data, indent=2)}")
+            if extra_headers:
+                logger.debug(f"[MEMFUSE API] Extra headers: {extra_headers}")
 
+        # Perform the request (health check is handled during init)
+        try:
             url = f"{self.base_url}{endpoint}"
 
-            async with getattr(self.session, method.lower())(url, json=data, timeout=self.timeout) as response:
+            async with getattr(self.session, method.lower())(
+                url,
+                json=data,
+                headers=extra_headers,
+                timeout=self.timeout,
+            ) as response:
                 response_data = await response.json()
                 if response.status >= 400:
                     error_message = response_data.get("message", "Unknown error")
@@ -126,6 +147,50 @@ class AsyncMemFuse:
                 "You can start the server with:\n"
                 "  poetry run memfuse-core"
             ) from e
+
+    async def _check_version_compatibility(self):
+        """Check SDK and server version compatibility and display warnings if needed."""
+        try:
+            # Get SDK version
+            from . import __version__
+            sdk_version = __version__
+            
+            # If version is placeholder, try to get it from installed package metadata
+            if not sdk_version or sdk_version == "{{version}}":
+                try:
+                    # Try to get version from installed package
+                    from importlib.metadata import version, PackageNotFoundError
+                    try:
+                        sdk_version = version('memfuse')
+                    except PackageNotFoundError:
+                        # Package not installed via pip, skip version check
+                        pass
+                except ImportError:
+                    # Python < 3.8, try backport
+                    try:
+                        from importlib_metadata import version, PackageNotFoundError
+                        try:
+                            sdk_version = version('memfuse')
+                        except PackageNotFoundError:
+                            pass
+                    except ImportError:
+                        pass
+            
+            if not sdk_version or sdk_version == "{{version}}":
+                logger.debug("SDK version not available, skipping version check")
+                return
+            
+            # Get server health information
+            health_data = await self.health.health_check()
+            
+            # Check compatibility and print warning if needed
+            warning = check_version_compatibility(sdk_version, health_data)
+            if warning:
+                print(warning)
+                
+        except Exception as e:
+            # Don't fail init if version check fails
+            logger.debug(f"Version compatibility check failed: {e}")
 
     async def init(
         self,
@@ -143,6 +208,19 @@ class AsyncMemFuse:
         Returns:
             ClientMemory: A client memory instance for the specified user, agent, and session
         """
+        # Ensure session and validate server health once up front
+        await self._ensure_session()
+        if not await self._check_server_health():
+            raise ConnectionError(
+                f"Cannot connect to MemFuse server at {self.base_url}. "
+                "Please make sure the server is running.\n\n"
+                "You can start the server with:\n"
+                "  poetry run memfuse-core"
+            )
+
+        # Check version compatibility
+        await self._check_version_compatibility()
+        
         # Get or create user
         user_name = user
         try:
@@ -161,23 +239,9 @@ class AsyncMemFuse:
                 # Re-raise other HTTP errors
                 raise
 
-        # Get or create agent
+        # Get or create agent using optimized singleflight mechanism
         agent_name = agent or "agent_default"
-        try:
-            agent_response = await self.agents.get_by_name(agent_name)
-            # If we get here, the agent exists
-            agent_id = agent_response["data"]["agents"][0]["id"]
-        except MemFuseHTTPError as e:
-            if e.status_code == 404:
-                # Agent doesn't exist, create it
-                agent_response = await self.agents.create(
-                    name=agent_name,
-                    description="Agent created by MemFuse client"
-                )
-                agent_id = agent_response["data"]["agent"]["id"]
-            else:
-                # Re-raise other HTTP errors
-                raise
+        agent_id = await self._get_or_create_agent(agent_name)
 
         # Check if session with the given name already exists
         session_name = session
@@ -247,6 +311,131 @@ class AsyncMemFuse:
         """
         await self.close()
 
+    async def _get_or_create_agent(self, agent_name: str) -> str:
+        """Get or create an agent with singleflight pattern to avoid concurrent creation.
+
+        This method implements the recommended SDK-side optimizations:
+        1. Singleflight pattern: merge concurrent requests for the same agent name
+        2. POST-first flow leveraging server-side idempotent create
+        3. Fallback handling: if POST fails with 400/409, GET the existing agent
+
+        Args:
+            agent_name: Name of the agent to get or create
+
+        Returns:
+            Agent ID
+        """
+        # Lazily initialize per-instance state bound to the current loop
+        if self._agent_creation_lock is None:
+            self._agent_creation_lock = asyncio.Lock()
+        if self._agent_creation_futures is None:
+            self._agent_creation_futures = {}
+
+        # Singleflight pattern: reuse in-flight task without awaiting while holding the lock
+        async with self._agent_creation_lock:
+            existing_future = self._agent_creation_futures.get(agent_name)
+            if existing_future is None:
+                future = asyncio.create_task(self._do_get_or_create_agent(agent_name))
+                self._agent_creation_futures[agent_name] = future
+            else:
+                future = existing_future
+
+        try:
+            return await future
+        finally:
+            # Only the creator removes the future
+            async with self._agent_creation_lock:
+                if self._agent_creation_futures.get(agent_name) is future:
+                    self._agent_creation_futures.pop(agent_name, None)
+
+    async def _do_get_or_create_agent(self, agent_name: str) -> str:
+        """Actually perform the get-or-create operation for an agent.
+
+        Preferred flow aligned with server semantics:
+        1. Try to POST create (server is idempotent and may return 200 or 201)
+        2. If POST fails with 400/409 (already exists), GET by name and return
+
+        Args:
+            agent_name: Name of the agent to get or create
+
+        Returns:
+            Agent ID
+        """
+        # Step 1: Try to create the agent (server handles get-or-create semantics)
+        idempotency_key = f"agent-create:{agent_name}:{uuid.uuid4().hex}"
+        max_attempts = 3
+        base_delay_seconds = 0.2
+
+        for attempt_index in range(max_attempts):
+            try:
+                agent_response = await self.agents.create(
+                    name=agent_name,
+                    description="Agent created by MemFuse client",
+                    idempotency_key=idempotency_key,
+                )
+                if (
+                    agent_response
+                    and agent_response.get("data")
+                    and agent_response["data"].get("agent")
+                ):
+                    return agent_response["data"]["agent"]["id"]
+                raise ValueError(
+                    f"Invalid response format when creating agent {agent_name}"
+                )
+
+            except MemFuseHTTPError as create_error:
+                # 400/409: already exists -> fetch
+                if (
+                    create_error.status_code in [400, 409]
+                    or "already exists" in str(create_error).lower()
+                ):
+                    # GET fallback with a couple of retries for transient issues
+                    for get_attempt in range(2):
+                        try:
+                            agent_response = await self.agents.get_by_name(agent_name)
+                            if (
+                                agent_response
+                                and agent_response.get("data")
+                                and agent_response["data"].get("agents")
+                                and len(agent_response["data"]["agents"]) > 0
+                            ):
+                                return agent_response["data"]["agents"][0]["id"]
+                            raise ValueError(
+                                f"Agent {agent_name} should exist but was not found"
+                            )
+                        except MemFuseHTTPError as get_error:
+                            # If GET returns 404 immediately after a conflict, wait briefly and retry
+                            if get_error.status_code >= 500 and get_attempt < 1:
+                                await asyncio.sleep(0.2)
+                                continue
+                            raise ValueError(
+                                f"Failed to get agent {agent_name} after creation conflict. "
+                                f"Create error: {create_error}, Get error: {get_error}"
+                            ) from get_error
+                        except (aiohttp.ClientError, asyncio.TimeoutError):
+                            if get_attempt < 1:
+                                await asyncio.sleep(0.2)
+                                continue
+                            raise
+                    # Should have returned by now
+                    raise ValueError(
+                        f"Agent {agent_name} should exist but was not retrievable"
+                    )
+
+                # Retry on 5xx for idempotent POST
+                if create_error.status_code >= 500 and attempt_index < max_attempts - 1:
+                    await asyncio.sleep(base_delay_seconds * (2 ** attempt_index))
+                    continue
+                # Other creation errors, re-raise
+                raise
+
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                # Network errors: retry a few times since POST is idempotent on server
+                if attempt_index < max_attempts - 1:
+                    await asyncio.sleep(base_delay_seconds * (2 ** attempt_index))
+                    continue
+                raise
+
     async def _thread_safe_coro_runner(self, coro):
         """Runs a coroutine with session management, suitable for asyncio.run() in a new thread."""
         await self._ensure_session()
@@ -259,7 +448,11 @@ class AsyncMemFuse:
 class MemFuse:
     """Synchronous MemFuse client for communicating with the MemFuse server."""
 
-    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None, timeout: int = 10):
+    # Class-level locks for agent creation (sync version)
+    _agent_creation_locks = {}
+    _agent_creation_lock = threading.Lock()
+
+    def __init__(self, base_url: str = "http://localhost:8765", api_key: Optional[str] = None, timeout: int = 10):
         """Initialize the synchronous MemFuse client.
 
         Args:
@@ -310,7 +503,11 @@ class MemFuse:
             return False
 
     def _request_sync(
-        self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None
+        self,
+        method: str,
+        endpoint: str,
+        data: Optional[Dict[str, Any]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Make a sync request to the MemFuse server.
 
@@ -328,19 +525,25 @@ class MemFuse:
         import requests
         self._ensure_sync_session()
 
-        # Check if the server is running
-        try:
-            if not self._check_server_health_sync():
-                raise ConnectionError(
-                    f"Cannot connect to MemFuse server at {self.base_url}. "
-                    "Please make sure the server is running.\n\n"
-                    "You can start the server with:\n"
-                    "  poetry run memfuse-core"
-                )
+        # Debug logging
+        if os.getenv("MEMFUSE_DEBUG") == "1":
+            url = f"{self.base_url}{endpoint}"
+            logger.debug(f"[MEMFUSE API] {method} {url}")
+            if data:
+                logger.debug(f"[MEMFUSE API] Request body: {json.dumps(data, indent=2)}")
+            if extra_headers:
+                logger.debug(f"[MEMFUSE API] Extra headers: {extra_headers}")
 
+        # Perform the request (health check is handled during init)
+        try:
             url = f"{self.base_url}{endpoint}"
 
-            response = getattr(self.sync_session, method.lower())(url, json=data, timeout=self.timeout)
+            response = getattr(self.sync_session, method.lower())(
+                url,
+                json=data,
+                headers=extra_headers,
+                timeout=self.timeout,
+            )
             response_data = response.json()
             if response.status_code >= 400:
                 error_message = response_data.get("message", "Unknown error")
@@ -354,6 +557,50 @@ class MemFuse:
                 "You can start the server with:\n"
                 "  poetry run memfuse-core"
             ) from e
+
+    def _check_version_compatibility_sync(self):
+        """Check SDK and server version compatibility and display warnings if needed (sync version)."""
+        try:
+            # Get SDK version
+            from . import __version__
+            sdk_version = __version__
+            
+            # If version is placeholder, try to get it from installed package metadata
+            if not sdk_version or sdk_version == "{{version}}":
+                try:
+                    # Try to get version from installed package
+                    from importlib.metadata import version, PackageNotFoundError
+                    try:
+                        sdk_version = version('memfuse')
+                    except PackageNotFoundError:
+                        # Package not installed via pip, skip version check
+                        pass
+                except ImportError:
+                    # Python < 3.8, try backport
+                    try:
+                        from importlib_metadata import version, PackageNotFoundError
+                        try:
+                            sdk_version = version('memfuse')
+                        except PackageNotFoundError:
+                            pass
+                    except ImportError:
+                        pass
+            
+            if not sdk_version or sdk_version == "{{version}}":
+                logger.debug("SDK version not available, skipping version check")
+                return
+            
+            # Get server health information
+            health_data = self.health.health_check_sync()
+            
+            # Check compatibility and print warning if needed
+            warning = check_version_compatibility(sdk_version, health_data)
+            if warning:
+                print(warning)
+                
+        except Exception as e:
+            # Don't fail init if version check fails
+            logger.debug(f"Version compatibility check failed: {e}")
 
     def init(
         self,
@@ -371,6 +618,19 @@ class MemFuse:
         Returns:
             Memory: A synchronous memory instance.
         """
+        # Ensure session and validate server health once up front
+        self._ensure_sync_session()
+        if not self._check_server_health_sync():
+            raise ConnectionError(
+                f"Cannot connect to MemFuse server at {self.base_url}. "
+                "Please make sure the server is running.\n\n"
+                "You can start the server with:\n"
+                "  poetry run memfuse-core"
+            )
+
+        # Check version compatibility
+        self._check_version_compatibility_sync()
+        
         # Get or create user
         user_name = user
         try:
@@ -389,23 +649,9 @@ class MemFuse:
                 # Re-raise other HTTP errors
                 raise
 
-        # Get or create agent
+        # Get or create agent using optimized approach
         agent_name = agent or "agent_default"
-        try:
-            agent_response = self.agents.get_by_name_sync(agent_name)
-            # If we get here, the agent exists
-            agent_id = agent_response["data"]["agents"][0]["id"]
-        except MemFuseHTTPError as e:
-            if e.status_code == 404:
-                # Agent doesn't exist, create it
-                agent_response = self.agents.create_sync(
-                    name=agent_name,
-                    description="Agent created by MemFuse client"
-                )
-                agent_id = agent_response["data"]["agent"]["id"]
-            else:
-                # Re-raise other HTTP errors
-                raise
+        agent_id = self._get_or_create_agent_sync(agent_name)
 
         # Check if session with the given name already exists
         session_name = session
@@ -438,7 +684,7 @@ class MemFuse:
             session_id = session_data["id"]
             session_name = session_data["name"]
 
-        from .memory import Memory 
+        from .memory import Memory
         return Memory(
             client=self,
             session_id=session_id,
@@ -448,6 +694,113 @@ class MemFuse:
             agent_name=agent_name,
             session_name=session_name
         )
+
+    def _get_or_create_agent_sync(self, agent_name: str) -> str:
+        """Get or create an agent with thread-safe locking (sync version).
+
+        This implements the same optimizations as the async version but for sync usage:
+        1. Per-agent-name locking to avoid concurrent creation
+        2. Fallback handling: if POST fails with 400/409, GET the existing agent
+        3. Proper error handling for server-side idempotent behavior
+
+        Args:
+            agent_name: Name of the agent to get or create
+
+        Returns:
+            Agent ID
+        """
+        # Get or create a per-agent lock
+        with MemFuse._agent_creation_lock:
+            if agent_name not in MemFuse._agent_creation_locks:
+                MemFuse._agent_creation_locks[agent_name] = threading.Lock()
+            agent_lock = MemFuse._agent_creation_locks[agent_name]
+
+        # Use the per-agent lock to serialize creation attempts
+        with agent_lock:
+            return self._do_get_or_create_agent_sync(agent_name)
+
+    def _do_get_or_create_agent_sync(self, agent_name: str) -> str:
+        """Actually perform the get-or-create operation for an agent (sync version).
+
+        Preferred flow aligned with server semantics:
+        1. Try to POST create (server is idempotent and may return 200 or 201)
+        2. If POST fails with 400/409 (already exists), GET by name and return
+
+        Args:
+            agent_name: Name of the agent to get or create
+
+        Returns:
+            Agent ID
+        """
+        # Step 1: Try to create the agent (server handles get-or-create semantics)
+        idempotency_key = f"agent-create:{agent_name}:{uuid.uuid4().hex}"
+        max_attempts = 3
+        base_delay_seconds = 0.2
+
+        import requests
+        for attempt_index in range(max_attempts):
+            try:
+                agent_response = self.agents.create_sync(
+                    name=agent_name,
+                    description="Agent created by MemFuse client",
+                    idempotency_key=idempotency_key,
+                )
+                if (
+                    agent_response
+                    and agent_response.get("data")
+                    and agent_response["data"].get("agent")
+                ):
+                    return agent_response["data"]["agent"]["id"]
+                raise ValueError(
+                    f"Invalid response format when creating agent {agent_name}"
+                )
+
+            except MemFuseHTTPError as create_error:
+                if (
+                    create_error.status_code in [400, 409]
+                    or "already exists" in str(create_error).lower()
+                ):
+                    # GET fallback with short retry for transient failures
+                    for get_attempt in range(2):
+                        try:
+                            agent_response = self.agents.get_by_name_sync(agent_name)
+                            if (
+                                agent_response
+                                and agent_response.get("data")
+                                and agent_response["data"].get("agents")
+                                and len(agent_response["data"]["agents"]) > 0
+                            ):
+                                return agent_response["data"]["agents"][0]["id"]
+                            raise ValueError(
+                                f"Agent {agent_name} should exist but was not found"
+                            )
+                        except MemFuseHTTPError as get_error:
+                            if get_error.status_code >= 500 and get_attempt < 1:
+                                time.sleep(0.2)
+                                continue
+                            raise ValueError(
+                                f"Failed to get agent {agent_name} after creation conflict. "
+                                f"Create error: {create_error}, Get error: {get_error}"
+                            ) from get_error
+                        except requests.exceptions.RequestException:
+                            if get_attempt < 1:
+                                time.sleep(0.2)
+                                continue
+                            raise
+                    raise ValueError(
+                        f"Agent {agent_name} should exist but was not retrievable"
+                    )
+
+                if create_error.status_code >= 500 and attempt_index < max_attempts - 1:
+                    time.sleep(base_delay_seconds * (2 ** attempt_index))
+                    continue
+                raise
+
+            except requests.exceptions.RequestException:
+                if attempt_index < max_attempts - 1:
+                    time.sleep(base_delay_seconds * (2 ** attempt_index))
+                    continue
+                raise
 
     def close(self):
         """Close the client and its underlying sessions."""

@@ -54,7 +54,7 @@ def test_multi_turn_conversation_memory():
         pytest.skip("OPENAI_API_KEY not set – skipping E2E memory test")
     
     # Setup
-    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8000")
+    memfuse_base_url = os.getenv("MEMFUSE_BASE_URL", "http://127.0.0.1:8765")
     openai_api_key = os.getenv("OPENAI_API_KEY")
     
     try:
@@ -82,7 +82,7 @@ def test_multi_turn_conversation_memory():
         # Turn 1: Ask about Moon facts
         # ---------------------------------------------------------------------
         response1 = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "What are three interesting facts about the Moon?"}],
         )
         answer1 = response1.choices[0].message.content or ""
@@ -95,7 +95,7 @@ def test_multi_turn_conversation_memory():
         # Turn 2: Compare to Mars (tests if Moon context is maintained)
         # ---------------------------------------------------------------------
         response2 = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "How does that compare to Mars?"}],
         )
         answer2 = response2.choices[0].message.content or ""
@@ -110,7 +110,7 @@ def test_multi_turn_conversation_memory():
         # Turn 3: Colonization question (tests if both Moon/Mars context maintained)
         # ---------------------------------------------------------------------
         response3 = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "Which would be easier to establish a human colony on?"}],
         )
         answer3 = response3.choices[0].message.content or ""
@@ -125,7 +125,7 @@ def test_multi_turn_conversation_memory():
         # Turn 4: Challenges (progressive context building)
         # ---------------------------------------------------------------------
         response4 = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "What are the biggest challenges humans would face on each?"}],
         )
         answer4 = response4.choices[0].message.content or ""
@@ -140,7 +140,7 @@ def test_multi_turn_conversation_memory():
         # Turn 5: Resources (further context building)
         # ---------------------------------------------------------------------
         response5 = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "What resources could be harvested from either location?"}],
         )
         answer5 = response5.choices[0].message.content or ""
@@ -155,7 +155,7 @@ def test_multi_turn_conversation_memory():
         # Turn 6: Europa comparison (ultimate memory test - remembers original topics)
         # ---------------------------------------------------------------------
         response6 = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_COMPATIBLE_MODEL", "gpt-5-nano"),
             messages=[{"role": "user", "content": "What about Europa, Jupiter's moon? How would it compare with the two we discussed?"}],
         )
         answer6 = response6.choices[0].message.content or ""

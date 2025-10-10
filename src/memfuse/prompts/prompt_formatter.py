@@ -1,8 +1,8 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 
 class PromptFormatter:
     @classmethod
-    def messages_to_query(cls, messages: List[Dict[str, str]]) -> str:
+    def messages_to_query(cls, messages: List[Dict[str, Any]]) -> str:
         query_string = ""
         for message in messages:
             role = message.get("role", "unknown").capitalize()

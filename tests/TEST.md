@@ -52,6 +52,7 @@ poetry run python scripts/run_tests.py --layer <layer_name>
 ```
 
 **Available layers:**
+
 - `poetry run python scripts/run_tests.py --layer smoke`
 - `poetry run python scripts/run_tests.py --layer unit`
 - `poetry run python scripts/run_tests.py --layer error_handling`
@@ -63,10 +64,12 @@ poetry run python scripts/run_tests.py --layer <layer_name>
 ### 3. Run Tests Up to a Specific Layer
 
 **This feature is not currently implemented** in the test runner. The script only supports:
+
 - All layers (default behavior)
 - Single specific layer (`--layer`)
 
 If you need to run tests up to a specific layer, you'd need to either:
+
 1. Modify the script to add a `--stop-at` parameter
 2. Run layers individually in sequence until your target layer
 
@@ -262,7 +265,7 @@ poetry run pytest tests/e2e/test_e2e_memory_followup.py::test_memory_followup_in
 #### Requirements
 
 - `OPENAI_API_KEY` environment variable (required)
-- `MEMFUSE_BASE_URL` environment variable (defaults to `http://127.0.0.1:8000`)
+- `MEMFUSE_BASE_URL` environment variable (defaults to `http://127.0.0.1:8765`)
 - Running MemFuse server instance
 - Optional: Ollama server with `nomic-embed-text` model for RAGAS evaluation
 

@@ -299,8 +299,8 @@ def test_default_values():
     sync_client = MemFuse()
     
     # Default base_url should be localhost
-    assert async_client.base_url == "http://localhost:8000"
-    assert sync_client.base_url == "http://localhost:8000"
+    assert async_client.base_url == "http://localhost:8765"
+    assert sync_client.base_url == "http://localhost:8765"
     
     # Session should initially be None
     assert async_client.session is None

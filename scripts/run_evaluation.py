@@ -119,6 +119,8 @@ async def main():
     parser.add_argument("--question-types", nargs="+", help="Filter by question types (LME only)")
     parser.add_argument("--top-k", type=int, help="Override default TOP_K value for memory retrieval")
     parser.add_argument("--model", type=str, help="Override default model name")
+    parser.add_argument("--concurrent", type=int, default=1,
+                        help="Number of concurrent evaluations (default: 1)")
     
     args = parser.parse_args()
     
@@ -160,6 +162,7 @@ async def main():
         dataset_name=args.dataset,
         top_k=top_k,
         model_name=model_name,
+        concurrent=args.concurrent,
         logger=logger
     )
     

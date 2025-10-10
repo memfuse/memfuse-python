@@ -13,15 +13,15 @@ class TestMemFuseClientInitialization:
 
     def test_init_with_env_api_key(self, monkeypatch):
         monkeypatch.setenv("MEMFUSE_API_KEY", "envkey")
-        client = MemFuseClient(api_key=None, base_url="http://localhost:8000/")
+        client = MemFuseClient(api_key=None, base_url="http://localhost:8765/")
         assert client.api_key == "envkey"
-        assert client.base_url == "http://localhost:8000"
+        assert client.base_url == "http://localhost:8765"
 
     def test_init_with_no_api_key(self, monkeypatch):
         monkeypatch.delenv("MEMFUSE_API_KEY", raising=False)
-        client = MemFuseClient(api_key=None, base_url="http://localhost:8000/")
+        client = MemFuseClient(api_key=None, base_url="http://localhost:8765/")
         assert client.api_key is None
-        assert client.base_url == "http://localhost:8000"
+        assert client.base_url == "http://localhost:8765"
 
     def test_base_url_trailing_slash(self):
         client = MemFuseClient(api_key="key", base_url="http://localhost:9999/")
@@ -173,10 +173,10 @@ class TestMemFuseClientRequestLogic:
         data = {"foo": "bar"}
         if method == "get":
             result = client._request(method, "/api/v1/test", data)
-            getattr(mock_session, method).assert_called_once_with(f"http://localhost:8000/api/v1/test")
+            getattr(mock_session, method).assert_called_once_with(f"http://localhost:8765/api/v1/test")
         else:
             result = client._request(method, "/api/v1/test", data)
-            getattr(mock_session, method).assert_called_once_with(f"http://localhost:8000/api/v1/test", json=data)
+            getattr(mock_session, method).assert_called_once_with(f"http://localhost:8765/api/v1/test", json=data)
         assert result == {"ok": True}
 
     def test_get_does_not_send_json(self, mocker):
@@ -190,7 +190,7 @@ class TestMemFuseClientRequestLogic:
         mock_response.json.return_value = {"ok": True}
         mock_session.get.return_value = mock_response
         client._request("get", "/api/v1/test", {"foo": "bar"})
-        mock_session.get.assert_called_once_with("http://localhost:8000/api/v1/test")
+        mock_session.get.assert_called_once_with("http://localhost:8765/api/v1/test")
 
     def test_returns_parsed_json_on_success(self, mocker):
         client = MemFuseClient(api_key=None)

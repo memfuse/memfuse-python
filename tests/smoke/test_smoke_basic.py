@@ -201,15 +201,15 @@ def test_url_construction():
     
     # Test with default base URL
     client1 = AsyncMemFuse()
-    assert client1.base_url == "http://localhost:8000"
+    assert client1.base_url == "http://localhost:8765"
     
     # Test with custom base URL
     client2 = AsyncMemFuse(base_url="https://api.example.com")
     assert client2.base_url == "https://api.example.com"
     
     # Test with trailing slash removal
-    client3 = AsyncMemFuse(base_url="http://localhost:8000/")
-    assert client3.base_url == "http://localhost:8000"
+    client3 = AsyncMemFuse(base_url="http://localhost:8765/")
+    assert client3.base_url == "http://localhost:8765"
     
     # Test sync client
     sync_client = MemFuse(base_url="https://api.example.com/")
@@ -346,3 +346,25 @@ def test_sync_client_full_cleanup():
         mock_session.close.assert_called_once()
         
         print("✅ Sync client full cleanup works properly") 
+
+
+@pytest.mark.smoke
+def test_version_compatibility_methods_exist():
+    """Test that version compatibility checking methods exist on clients."""
+    from memfuse import AsyncMemFuse, MemFuse
+    
+    async_client = AsyncMemFuse()
+    sync_client = MemFuse()
+    
+    # Check that version compatibility methods exist
+    assert hasattr(async_client, '_check_version_compatibility')
+    assert hasattr(sync_client, '_check_version_compatibility_sync')
+    assert callable(async_client._check_version_compatibility)
+    assert callable(sync_client._check_version_compatibility_sync)
+    
+    # Verify async method is actually async
+    import asyncio
+    assert asyncio.iscoroutinefunction(async_client._check_version_compatibility)
+    assert not asyncio.iscoroutinefunction(sync_client._check_version_compatibility_sync)
+    
+    print("✅ Version compatibility methods are available") 
